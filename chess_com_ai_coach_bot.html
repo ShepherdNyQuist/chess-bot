@@ -1,0 +1,3106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ChessCoach AI — Interactive Chess & Move Explainer</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chess.js for 100% rule-accurate chess logic (castling, en passant, promotion, checkmate, algebraic notation) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+  <!-- Google Fonts: Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-main: #161512;
+      --bg-panel: #262421;
+      --bg-panel-dark: #1e1c19;
+      --bg-card: #302e2b;
+      --accent-green: #81b64c;
+      --accent-green-hover: #95cc5c;
+      --sq-light: #ebecd0;
+      --sq-dark: #739552;
+      --sq-highlight: rgba(245, 246, 130, 0.55);
+      --sq-selected: rgba(246, 246, 105, 0.72);
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: var(--bg-main);
+      color: #f3f3f2;
+      margin: 0;
+      padding: 0;
+      overflow-x: hidden;
+      user-select: none;
+    }
+
+    /* Board Themes */
+    .theme-green {
+      --sq-light: #ebecd0;
+      --sq-dark: #739552;
+    }
+    .theme-slate {
+      --sq-light: #dee3e6;
+      --sq-dark: #8ca2ad;
+    }
+    .theme-wood {
+      --sq-light: #f0d9b5;
+      --sq-dark: #b58863;
+    }
+
+    /* Chessboard Grid */
+    .chess-board-grid {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      grid-template-rows: repeat(8, 1fr);
+      aspect-ratio: 1 / 1;
+      width: 100%;
+      position: relative;
+      border-radius: 6px;
+      overflow: hidden;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+    }
+
+    .square {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background-color 0.12s ease;
+    }
+
+    .square.light {
+      background-color: var(--sq-light);
+    }
+
+    .square.dark {
+      background-color: var(--sq-dark);
+    }
+
+    .square.last-move::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-color: var(--sq-highlight);
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .square.selected::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-color: var(--sq-selected);
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .square.key-square::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-color: rgba(56, 189, 248, 0.35);
+      box-shadow: inset 0 0 0 2px rgba(56, 189, 248, 0.8);
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .square.in-check {
+      background: radial-gradient(circle, rgba(235, 64, 52, 0.95) 0%, rgba(235, 64, 52, 0.65) 55%, rgba(235, 64, 52, 0) 80%) !important;
+    }
+
+    /* Legal Move Indicators */
+    .legal-dot {
+      width: 30%;
+      height: 30%;
+      border-radius: 50%;
+      background-color: rgba(0, 0, 0, 0.18);
+      z-index: 3;
+      pointer-events: none;
+      transition: transform 0.1s ease;
+    }
+
+    .square:hover .legal-dot {
+      transform: scale(1.18);
+      background-color: rgba(0, 0, 0, 0.26);
+    }
+
+    .legal-capture {
+      position: absolute;
+      inset: 6%;
+      border-radius: 50%;
+      border: 5px solid rgba(0, 0, 0, 0.18);
+      z-index: 3;
+      pointer-events: none;
+    }
+
+    .square:hover .legal-capture {
+      border-color: rgba(0, 0, 0, 0.28);
+    }
+
+    /* Piece Styling */
+    .piece-svg {
+      width: 84%;
+      height: 84%;
+      z-index: 4;
+      pointer-events: none;
+      filter: drop-shadow(0 2px 3px rgba(0,0,0,0.35));
+      transition: transform 0.12s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+
+    .square:hover .piece-svg {
+      transform: translateY(-2px) scale(1.03);
+    }
+
+    /* Coordinate Labels */
+    .coord-rank {
+      position: absolute;
+      top: 3px;
+      left: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    .coord-file {
+      position: absolute;
+      bottom: 3px;
+      right: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    .light .coord-rank, .light .coord-file {
+      color: var(--sq-dark);
+    }
+
+    .dark .coord-rank, .dark .coord-file {
+      color: var(--sq-light);
+    }
+
+    /* Evaluation Bar */
+    .eval-bar-container {
+      width: 26px;
+      border-radius: 6px;
+      overflow: hidden;
+      background-color: #2c2a27;
+      position: relative;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      border: 1px solid #3d3b37;
+    }
+
+    .eval-bar-fill {
+      width: 100%;
+      background-color: #f4f4f2;
+      transition: height 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+      position: absolute;
+      bottom: 0;
+      left: 0;
+    }
+
+    .eval-bar-container.flipped .eval-bar-fill {
+      bottom: auto;
+      top: 0;
+    }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #1e1c19;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #44413c;
+      border-radius: 999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #5a5650;
+    }
+
+    /* Speech Bubble Tail */
+    .coach-bubble {
+      position: relative;
+      background: #302e2b;
+      border: 1px solid #423f3b;
+      border-radius: 12px;
+    }
+    @media (min-width: 640px) {
+      .coach-bubble::before {
+        content: '';
+        position: absolute;
+        left: -8px;
+        top: 20px;
+        width: 0;
+        height: 0;
+        border-top: 8px solid transparent;
+        border-bottom: 8px solid transparent;
+        border-right: 8px solid #423f3b;
+      }
+      .coach-bubble::after {
+        content: '';
+        position: absolute;
+        left: -6px;
+        top: 21px;
+        width: 0;
+        height: 0;
+        border-top: 7px solid transparent;
+        border-bottom: 7px solid transparent;
+        border-right: 7px solid #302e2b;
+      }
+    }
+
+    @keyframes popIn {
+      0% { transform: scale(0.7); opacity: 0; }
+      75% { transform: scale(1.08); opacity: 1; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .badge-pop {
+      animation: popIn 0.25s ease-out forwards;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- Top Navigation Header with Mode Tabs -->
+  <header class="bg-[#1e1c19] border-b border-[#2f2d29] px-3 sm:px-5 py-2 flex flex-wrap items-center justify-between gap-2 sticky top-0 z-30">
+    <!-- Brand -->
+    <div class="flex items-center gap-2.5">
+      <div class="w-8 h-8 rounded-lg bg-[#81b64c] flex items-center justify-center shadow-md">
+        <svg class="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 2a3.5 3.5 0 0 0-3.5 3.5c0 1.24.65 2.33 1.62 2.95C8.92 9.15 8 10.47 8 12c0 1.15.48 2.18 1.25 2.91L7.5 19H6v2h12v-2h-1.5l-1.75-4.09A3.99 3.99 0 0 0 16 12c0-1.53-.92-2.85-2.12-3.55A3.49 3.49 0 0 0 15.5 5.5 3.5 3.5 0 0 0 12 2z"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="text-base sm:text-lg font-extrabold tracking-tight text-white leading-none">
+          ChessCoach<span class="text-[#81b64c]">.ai</span>
+        </h1>
+        <p class="text-[10px] text-neutral-400 hidden md:block">AI Bot, Post-Game Walkthrough & Opening Academy</p>
+      </div>
+    </div>
+
+    <!-- Primary Navigation Tabs -->
+    <nav class="flex items-center bg-[#262421] p-1 rounded-xl border border-[#36332f] order-3 sm:order-2 w-full sm:w-auto justify-center">
+      <button onclick="switchMainTab('play')" id="nav-tab-play" class="flex-1 sm:flex-initial px-3.5 py-1.5 rounded-lg text-xs font-bold bg-[#81b64c] text-white shadow transition flex items-center justify-center gap-1.5">
+        <span>♟️</span>
+        <span>Play vs AI</span>
+      </button>
+      <button onclick="switchMainTab('openings')" id="nav-tab-openings" class="flex-1 sm:flex-initial px-3.5 py-1.5 rounded-lg text-xs font-bold text-neutral-300 hover:text-white transition flex items-center justify-center gap-1.5">
+        <span>📖</span>
+        <span>Openings Explorer</span>
+      </button>
+      <button onclick="switchMainTab('puzzles')" id="nav-tab-puzzles" class="flex-1 sm:flex-initial px-3.5 py-1.5 rounded-lg text-xs font-bold text-neutral-300 hover:text-white transition flex items-center justify-center gap-1.5">
+        <span>🧩</span>
+        <span>Tactics & Puzzles</span>
+      </button>
+    </nav>
+
+    <!-- Right Header Controls: Theme, Flip, Sound -->
+    <div class="flex items-center gap-2 order-2 sm:order-3">
+      <div class="flex items-center bg-[#2a2825] rounded-lg p-1 border border-[#3a3733]" title="Board Theme">
+        <button onclick="setBoardTheme('green')" id="btn-theme-green" class="w-4 h-4 sm:w-5 sm:h-5 rounded bg-[#739552] ring-2 ring-white transition" aria-label="Green Theme"></button>
+        <button onclick="setBoardTheme('slate')" id="btn-theme-slate" class="w-4 h-4 sm:w-5 sm:h-5 rounded bg-[#8ca2ad] ml-1.5 opacity-70 hover:opacity-100 transition" aria-label="Slate Theme"></button>
+        <button onclick="setBoardTheme('wood')" id="btn-theme-wood" class="w-4 h-4 sm:w-5 sm:h-5 rounded bg-[#b58863] ml-1.5 opacity-70 hover:opacity-100 transition" aria-label="Wood Theme"></button>
+      </div>
+
+      <button onclick="flipCurrentBoard()" class="p-2 rounded-lg bg-[#2a2825] hover:bg-[#363430] text-neutral-300 hover:text-white border border-[#3a3733] transition" title="Flip Board">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/>
+        </svg>
+      </button>
+
+      <button onclick="toggleSound()" id="sound-toggle-btn" class="p-2 rounded-lg bg-[#2a2825] hover:bg-[#363430] text-[#81b64c] border border-[#3a3733] transition" title="Toggle Sound">
+        <svg id="sound-icon-on" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/>
+        </svg>
+        <svg id="sound-icon-off" class="w-4 h-4 hidden text-neutral-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15zM17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ======================================================================== -->
+  <!-- VIEW 1: PLAY VS AI + POST-GAME WALKTHROUGH                                -->
+  <!-- ======================================================================== -->
+  <main id="view-play" class="flex-1 max-w-[1320px] w-full mx-auto px-3 sm:px-6 py-4 flex flex-col lg:flex-row items-center lg:items-start justify-center gap-5 lg:gap-7">
+
+    <!-- LEFT COLUMN: Live Opening Banner + Opponent + Board + Post-Game Walkthrough Bar + Player -->
+    <div class="w-full max-w-[600px] flex flex-col gap-2">
+
+      <!-- Live Opening Recognition Banner -->
+      <div class="bg-[#211f1c] border border-[#34312d] px-3 py-1.5 rounded-lg flex items-center justify-between text-xs">
+        <div class="flex items-center gap-2 truncate">
+          <span class="px-1.5 py-0.5 rounded bg-[#81b64c]/20 text-[#9ce05a] font-mono font-bold text-[10px]" id="live-eco-badge">A00</span>
+          <span class="font-semibold text-neutral-200 truncate" id="live-opening-name">Starting Position</span>
+        </div>
+        <button onclick="openDetectedOpeningInExplorer()" id="learn-detected-opening-btn" class="hidden text-[11px] font-bold text-[#81b64c] hover:underline shrink-0 ml-2">
+          Study Opening →
+        </button>
+      </div>
+
+      <!-- Top Player Strip -->
+      <div id="top-player-bar" class="flex items-center justify-between bg-[#262421] px-3 py-2 rounded-lg border border-[#34312d]">
+        <div class="flex items-center gap-2.5">
+          <div id="top-avatar" class="w-9 h-9 rounded-lg bg-[#3c3934] flex items-center justify-center text-xl shadow-inner border border-[#4d4943]">
+            🤖
+          </div>
+          <div>
+            <div class="flex items-center gap-1.5">
+              <span id="top-name" class="font-bold text-sm text-white">CoachBot (Club)</span>
+              <span id="top-rating-badge" class="text-[11px] font-mono bg-[#383530] text-neutral-300 px-1.5 py-0.5 rounded">1200</span>
+              <span id="ai-thinking-badge" class="hidden text-[11px] font-medium text-[#81b64c] animate-pulse ml-1">Thinking...</span>
+            </div>
+            <div id="top-captures" class="flex items-center gap-0.5 h-4 mt-0.5 text-xs text-neutral-300"></div>
+          </div>
+        </div>
+        <div id="top-advantage" class="text-xs font-mono font-bold text-neutral-400"></div>
+      </div>
+
+      <!-- Board & Evaluation Bar Wrapper -->
+      <div class="flex items-stretch gap-2.5 w-full">
+        <!-- Vertical Evaluation Bar -->
+        <div id="eval-bar" class="eval-bar-container flex flex-col justify-between items-center py-1.5 select-none shrink-0" title="Position Evaluation">
+          <span id="eval-top-text" class="text-[10px] font-mono font-bold text-neutral-300 z-10 leading-none"></span>
+          <div id="eval-fill" class="eval-bar-fill" style="height: 50%;"></div>
+          <span id="eval-bottom-text" class="text-[10px] font-mono font-bold text-neutral-900 z-10 leading-none">0.0</span>
+        </div>
+
+        <!-- Chessboard Container -->
+        <div id="board-theme-wrapper" class="theme-green relative flex-1 aspect-square">
+          <div id="chessboard" class="chess-board-grid"></div>
+
+          <!-- SVG Overlay for Coach Arrows -->
+          <svg id="arrow-overlay" viewBox="0 0 800 800" class="absolute inset-0 w-full h-full pointer-events-none z-20"></svg>
+
+          <!-- Demonstration Mode Floating Banner -->
+          <div id="demo-mode-banner" class="hidden absolute top-2.5 left-1/2 -translate-x-1/2 z-25 bg-sky-600/95 text-white px-3.5 py-1.5 rounded-full shadow-lg border border-sky-300/40 flex items-center gap-2 text-xs font-bold whitespace-nowrap">
+            <span class="w-2 h-2 rounded-full bg-white animate-ping"></span>
+            <span id="demo-banner-label">Coach Demo: Showing Better Line</span>
+            <button onclick="exitDemoLine()" class="ml-1 bg-black/30 hover:bg-black/50 px-2 py-0.5 rounded-full text-[11px]">Exit Demo</button>
+          </div>
+
+          <!-- Pawn Promotion Modal Overlay -->
+          <div id="promotion-modal" class="hidden absolute inset-0 bg-black/65 backdrop-blur-[2px] z-30 flex items-center justify-center rounded-md">
+            <div class="bg-[#262421] border border-[#45423d] p-4 rounded-xl shadow-2xl text-center">
+              <p class="text-xs font-bold uppercase tracking-wider text-neutral-300 mb-3">Promote Pawn To</p>
+              <div id="promotion-choices" class="flex items-center gap-3"></div>
+            </div>
+          </div>
+
+          <!-- Game Over Summary Modal Overlay -->
+          <div id="gameover-modal" class="hidden absolute inset-0 bg-black/75 backdrop-blur-[2px] z-30 flex items-center justify-center p-4 rounded-md">
+            <div class="bg-[#262421] border border-[#4a4741] p-5 rounded-2xl shadow-2xl max-w-sm w-full text-center badge-pop">
+              <div id="gameover-icon" class="text-4xl mb-1.5">🏆</div>
+              <h2 id="gameover-title" class="text-xl font-extrabold text-white">Checkmate!</h2>
+              <p id="gameover-subtitle" class="text-xs text-neutral-300 mt-1 mb-4">White wins by checkmate</p>
+
+              <!-- Accuracy & Move Quality Mini Report -->
+              <div class="bg-[#1e1c19] border border-[#34312d] rounded-xl p-3 mb-4 text-left">
+                <div class="flex items-center justify-between text-xs font-bold mb-2">
+                  <span class="text-neutral-400">Your Accuracy</span>
+                  <span id="summary-accuracy-pct" class="text-[#81b64c] font-mono text-sm">88.4%</span>
+                </div>
+                <div class="grid grid-cols-3 gap-1.5 text-center text-[11px]">
+                  <div class="bg-[#262421] p-1.5 rounded">
+                    <div id="summary-best-count" class="font-extrabold text-[#81b64c]">0</div>
+                    <div class="text-neutral-400 text-[10px]">Best/Good</div>
+                  </div>
+                  <div class="bg-[#262421] p-1.5 rounded">
+                    <div id="summary-mistake-count" class="font-extrabold text-amber-400">0</div>
+                    <div class="text-neutral-400 text-[10px]">Inacc/Mistake</div>
+                  </div>
+                  <div class="bg-[#262421] p-1.5 rounded">
+                    <div id="summary-blunder-count" class="font-extrabold text-rose-400">0</div>
+                    <div class="text-neutral-400 text-[10px]">Blunders</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex flex-col gap-2">
+                <button onclick="startPostGameWalkthrough()" class="w-full py-2.5 px-4 rounded-lg bg-[#81b64c] hover:bg-[#95cc5c] text-white font-extrabold text-sm shadow-lg transition flex items-center justify-center gap-2">
+                  <span>🎬</span>
+                  <span>Interactive Coach Walkthrough</span>
+                </button>
+                <button onclick="startNewGame()" class="w-full py-2 px-4 rounded-lg bg-[#35332f] hover:bg-[#423f3a] text-neutral-200 font-bold text-xs transition">
+                  Play New Game
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- POST-GAME & MOVE REVIEW PLAYBACK BAR (Moves pieces step-by-step on board) -->
+      <div id="review-playback-bar" class="bg-[#211f1c] border border-[#34312d] px-3 py-2 rounded-lg flex flex-wrap items-center justify-between gap-2">
+        <div class="flex items-center gap-1">
+          <button onclick="jumpToPly(0)" class="px-2 py-1.5 rounded bg-[#2d2b27] hover:bg-[#3a3732] text-xs font-mono font-bold text-neutral-200" title="Start of Game">|&lt;</button>
+          <button onclick="stepReviewPly(-1)" class="px-2.5 py-1.5 rounded bg-[#2d2b27] hover:bg-[#3a3732] text-xs font-mono font-bold text-neutral-200" title="Previous Move">&lt;</button>
+          <button onclick="toggleAutoWalkthrough()" id="auto-walk-btn" class="px-3 py-1.5 rounded bg-[#81b64c] hover:bg-[#95cc5c] text-xs font-bold text-white flex items-center gap-1 shadow-sm" title="Auto-Play Walkthrough">
+            <span id="auto-walk-icon">▶</span>
+            <span id="auto-walk-label">Walkthrough</span>
+          </button>
+          <button onclick="stepReviewPly(1)" class="px-2.5 py-1.5 rounded bg-[#2d2b27] hover:bg-[#3a3732] text-xs font-mono font-bold text-neutral-200" title="Next Move">&gt;</button>
+          <button onclick="jumpToPly(fullMoveHistory.length)" class="px-2 py-1.5 rounded bg-[#2d2b27] hover:bg-[#3a3732] text-xs font-mono font-bold text-neutral-200" title="Latest Position">&gt;|</button>
+        </div>
+
+        <button onclick="demonstrateConceptOnBoard()" id="demo-concept-btn" class="px-3 py-1.5 rounded-lg bg-sky-600/25 hover:bg-sky-600/40 text-sky-300 border border-sky-500/40 text-xs font-bold flex items-center gap-1.5 transition">
+          <span>✨</span>
+          <span>Show Concept on Board</span>
+        </button>
+      </div>
+
+      <!-- Bottom Player Strip -->
+      <div id="bottom-player-bar" class="flex items-center justify-between bg-[#262421] px-3 py-2 rounded-lg border border-[#34312d]">
+        <div class="flex items-center gap-2.5">
+          <div id="bottom-avatar" class="w-9 h-9 rounded-lg bg-[#81b64c]/20 border border-[#81b64c]/50 flex items-center justify-center text-lg font-bold text-[#81b64c]">
+            ♟️
+          </div>
+          <div>
+            <div class="flex items-center gap-1.5">
+              <span id="bottom-name" class="font-bold text-sm text-white">You</span>
+              <span id="bottom-color-tag" class="text-[11px] font-medium bg-[#383530] text-neutral-300 px-1.5 py-0.5 rounded">White</span>
+            </div>
+            <div id="bottom-captures" class="flex items-center gap-0.5 h-4 mt-0.5 text-xs text-neutral-300"></div>
+          </div>
+        </div>
+        <div id="bottom-advantage" class="text-xs font-mono font-bold text-neutral-400"></div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT COLUMN: AI Coach Panel + Deep Explanation Drawer + Move List + Controls -->
+    <div class="w-full max-w-[600px] lg:w-[460px] bg-[#262421] rounded-xl border border-[#34312d] shadow-xl flex flex-col overflow-hidden lg:h-[750px]">
+
+      <!-- Panel Header -->
+      <div class="bg-[#1e1c19] px-4 py-2.5 border-b border-[#34312d] flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-[#81b64c]"></span>
+          <h2 class="font-bold text-xs tracking-wider text-white uppercase">Coach Review & Deep Analysis</h2>
+        </div>
+        <span id="game-phase-badge" class="text-[11px] font-semibold px-2 py-0.5 rounded bg-[#302e2b] text-neutral-300 border border-[#423f3b]">
+          Opening Phase
+        </span>
+      </div>
+
+      <!-- AI COACH EXPLAINER CARD -->
+      <div class="p-3.5 bg-[#22201d] border-b border-[#34312d]">
+        <div class="flex flex-col sm:flex-row items-start gap-3">
+          <div class="flex items-center gap-2 sm:block shrink-0">
+            <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-[#81b64c] to-[#56822c] p-0.5 shadow-md">
+              <div class="w-full h-full bg-[#1e1c19] rounded-[10px] flex items-center justify-center text-2xl">
+                🧑‍🏫
+              </div>
+            </div>
+          </div>
+
+          <div class="coach-bubble p-3 flex-1 w-full">
+            <div class="flex items-center justify-between gap-2 mb-1.5">
+              <div id="coach-classification" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-[#81b64c]/20 text-[#9ce05a] border border-[#81b64c]/40">
+                <span>★ READY TO PLAY</span>
+              </div>
+              <span id="coach-eval-pill" class="text-xs font-mono font-bold text-neutral-400">Eval: 0.0</span>
+            </div>
+
+            <p id="coach-main-text" class="text-[13px] leading-relaxed text-neutral-100 font-medium">
+              Make your first move! Every move is analyzed in real time, and you can click "Why is this Good/Bad?" for deep strategic concepts or animate better lines on the board.
+            </p>
+
+            <!-- Expandable Deep Idea Breakdown Drawer -->
+            <div id="deep-explanation-box" class="hidden mt-2.5 pt-2.5 border-t border-[#423f3b] space-y-2 text-xs">
+              <div class="flex items-center justify-between">
+                <span class="font-extrabold uppercase tracking-wider text-[10px] text-amber-400">Chess Concept & Tactical Breakdown</span>
+                <span id="concept-tag-pill" class="px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px] font-bold">Center Control</span>
+              </div>
+              <p id="deep-concept-body" class="text-neutral-200 leading-relaxed"></p>
+              <div id="deep-alternative-box" class="hidden bg-[#1e1c19] p-2 rounded-lg border border-[#3a3732] flex items-center justify-between gap-2">
+                <span id="deep-alternative-text" class="text-[11px] text-neutral-300"></span>
+                <button onclick="demonstrateConceptOnBoard()" class="px-2.5 py-1 rounded bg-[#81b64c] hover:bg-[#95cc5c] text-white font-bold text-[11px] shrink-0">
+                  Play Line on Board
+                </button>
+              </div>
+            </div>
+
+            <!-- Bot Reply Plan -->
+            <div id="coach-sub-box" class="hidden mt-2 pt-2 border-t border-[#423f3b] text-xs text-neutral-300 leading-relaxed">
+              <span class="font-bold text-[#81b64c]">Bot's Plan: </span>
+              <span id="coach-sub-text"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Primary Coach Action Buttons -->
+        <div class="mt-3 grid grid-cols-3 gap-1.5">
+          <button onclick="toggleDeepExplanation()" id="explain-why-btn" class="col-span-2 py-2 px-2.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-bold text-xs border border-amber-500/40 flex items-center justify-center gap-1.5 transition">
+            <span>🧠</span>
+            <span>Why is this Good/Bad?</span>
+          </button>
+          <button onclick="requestCoachHint()" id="hint-btn" class="py-2 px-2 rounded-lg bg-[#35332e] hover:bg-[#43403a] text-white font-semibold text-xs border border-[#4a4741] flex items-center justify-center gap-1 transition">
+            <span>💡</span>
+            <span>Hint</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ALGEBRAIC MOVE HISTORY TABLE (Clickable to inspect any move!) -->
+      <div class="flex-1 flex flex-col min-h-[150px] bg-[#1e1c19] overflow-hidden">
+        <div class="px-4 py-1.5 bg-[#262421] border-b border-[#34312d] flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-neutral-400">
+          <span>Move History (Click any move to inspect)</span>
+          <span id="move-count-label">0 Moves</span>
+        </div>
+        <div id="move-history-list" class="flex-1 overflow-y-auto divide-y divide-[#282622] text-xs font-mono">
+          <div class="p-6 text-center text-neutral-500 font-sans text-xs">
+            No moves played yet. Click a piece to begin!
+          </div>
+        </div>
+      </div>
+
+      <!-- GAME SETUP & BOT CONTROLS FOOTER -->
+      <div class="p-3 bg-[#262421] border-t border-[#34312d] flex flex-col gap-2">
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label for="bot-level-select" class="block text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-1">
+              AI Bot Rating
+            </label>
+            <select id="bot-level-select" onchange="onBotSettingsChanged()" class="w-full bg-[#1e1c19] text-white text-xs font-semibold rounded-lg px-2.5 py-1.5 border border-[#3d3a35] focus:outline-none focus:border-[#81b64c]">
+              <option value="400">🌱 Beginner (400)</option>
+              <option value="800">🙂 Casual (800)</option>
+              <option value="1200" selected>🧠 Club Player (1200)</option>
+              <option value="1600">🔥 Master (1600)</option>
+            </select>
+          </div>
+
+          <div>
+            <label for="player-side-select" class="block text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-1">
+              Play As
+            </label>
+            <select id="player-side-select" onchange="startNewGame()" class="w-full bg-[#1e1c19] text-white text-xs font-semibold rounded-lg px-2.5 py-1.5 border border-[#3d3a35] focus:outline-none focus:border-[#81b64c]">
+              <option value="w" selected>♔ White (First Move)</option>
+              <option value="b">♚ Black (Second Move)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2">
+          <button onclick="undoLastTurn()" class="py-2 px-3 rounded-lg bg-[#35332e] hover:bg-[#43403a] text-neutral-200 font-bold text-xs border border-[#4a4741] transition">
+            ↩ Takeback
+          </button>
+          <button onclick="startNewGame()" class="col-span-2 py-2 px-4 rounded-lg bg-[#81b64c] hover:bg-[#95cc5c] text-white font-extrabold text-xs shadow-md transition">
+            + New Game
+          </button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ======================================================================== -->
+  <!-- VIEW 2: OPENINGS EXPLORER & INTERACTIVE CONCEPT TRAINER                  -->
+  <!-- ======================================================================== -->
+  <section id="view-openings" class="hidden flex-1 max-w-[1360px] w-full mx-auto px-3 sm:px-6 py-4 flex flex-col lg:flex-row gap-5">
+
+    <!-- LEFT: Searchable & Filterable Opening Encyclopedia List -->
+    <div class="w-full lg:w-[370px] bg-[#262421] rounded-xl border border-[#34312d] flex flex-col overflow-hidden lg:h-[750px] shrink-0">
+      <div class="p-3.5 bg-[#1e1c19] border-b border-[#34312d]">
+        <h2 class="text-sm font-extrabold text-white flex items-center gap-2 mb-2.5">
+          <span>📖</span>
+          <span>Opening Encyclopedia (36 Openings)</span>
+        </h2>
+        <input type="text" id="opening-search-input" oninput="filterOpeningsList()" placeholder="Search Ruy Lopez, Sicilian, London, Gambit..." class="w-full bg-[#262421] text-white text-xs rounded-lg px-3 py-2 border border-[#3d3a35] focus:outline-none focus:border-[#81b64c] mb-2">
+        <div class="flex flex-wrap gap-1" id="opening-category-filters">
+          <button onclick="setOpeningCategory('ALL')" data-cat="ALL" class="opening-cat-btn px-2 py-1 rounded text-[11px] font-bold bg-[#81b64c] text-white">All</button>
+          <button onclick="setOpeningCategory('Open Games')" data-cat="Open Games" class="opening-cat-btn px-2 py-1 rounded text-[11px] font-bold bg-[#302e2b] text-neutral-300 hover:text-white">1.e4 e5</button>
+          <button onclick="setOpeningCategory('Semi-Open')" data-cat="Semi-Open" class="opening-cat-btn px-2 py-1 rounded text-[11px] font-bold bg-[#302e2b] text-neutral-300 hover:text-white">1.e4 ...</button>
+          <button onclick="setOpeningCategory('Queens Pawn')" data-cat="Queens Pawn" class="opening-cat-btn px-2 py-1 rounded text-[11px] font-bold bg-[#302e2b] text-neutral-300 hover:text-white">1.d4 d5</button>
+          <button onclick="setOpeningCategory('Indian Defenses')" data-cat="Indian Defenses" class="opening-cat-btn px-2 py-1 rounded text-[11px] font-bold bg-[#302e2b] text-neutral-300 hover:text-white">Indian</button>
+          <button onclick="setOpeningCategory('Flank & Hypermodern')" data-cat="Flank & Hypermodern" class="opening-cat-btn px-2 py-1 rounded text-[11px] font-bold bg-[#302e2b] text-neutral-300 hover:text-white">Flank</button>
+        </div>
+      </div>
+
+      <div id="openings-catalog-list" class="flex-1 overflow-y-auto divide-y divide-[#2f2c28] max-h-[340px] lg:max-h-none"></div>
+    </div>
+
+    <!-- CENTER: Interactive Opening Demonstration & Drill Board -->
+    <div class="w-full max-w-[540px] mx-auto flex flex-col gap-2.5">
+      <div class="bg-[#262421] px-3.5 py-2.5 rounded-lg border border-[#34312d] flex items-center justify-between">
+        <div>
+          <div class="flex items-center gap-2">
+            <span id="op-board-eco" class="px-1.5 py-0.5 rounded bg-[#81b64c]/20 text-[#9ce05a] font-mono font-bold text-xs">C50</span>
+            <h3 id="op-board-title" class="font-extrabold text-sm sm:text-base text-white">Italian Game</h3>
+          </div>
+          <p id="op-board-moves-pgn" class="text-xs font-mono text-neutral-400 mt-0.5">1. e4 e5 2. Nf3 Nc6 3. Bc4</p>
+        </div>
+        <span id="op-side-badge" class="text-[11px] font-bold px-2.5 py-1 rounded bg-[#35332f] text-neutral-200 border border-[#4a4741]">White Opening</span>
+      </div>
+
+      <!-- Opening Interactive Board -->
+      <div id="opening-board-wrapper" class="theme-green relative w-full aspect-square">
+        <div id="opening-chessboard" class="chess-board-grid"></div>
+        <svg id="opening-arrow-overlay" viewBox="0 0 800 800" class="absolute inset-0 w-full h-full pointer-events-none z-20"></svg>
+      </div>
+
+      <!-- Opening Step Controls & Practice Mode -->
+      <div class="bg-[#262421] p-2.5 rounded-lg border border-[#34312d] flex flex-wrap items-center justify-between gap-2">
+        <div class="flex items-center gap-1.5">
+          <button onclick="stepOpeningMove(-1)" class="px-3 py-1.5 rounded bg-[#35332f] hover:bg-[#44413c] text-xs font-bold text-white">◀ Prev</button>
+          <span id="op-step-counter" class="text-xs font-mono font-bold text-neutral-300 px-2">Move 0 / 6</span>
+          <button onclick="stepOpeningMove(1)" class="px-3 py-1.5 rounded bg-[#81b64c] hover:bg-[#95cc5c] text-xs font-bold text-white">Next Move ▶</button>
+        </div>
+
+        <div class="flex items-center gap-1.5">
+          <button onclick="toggleOpeningPracticeDrill()" id="op-drill-btn" class="px-3 py-1.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold">
+            🎯 Practice From Memory
+          </button>
+          <button onclick="sparOpeningVsBot()" class="px-3 py-1.5 rounded bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold">
+            ⚔️ Spar vs AI
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Coach Concept Lesson Card for Selected Opening -->
+    <div class="flex-1 bg-[#262421] rounded-xl border border-[#34312d] p-4 flex flex-col gap-3.5 overflow-y-auto lg:h-[750px]">
+      <div class="flex items-center gap-2.5 border-b border-[#34312d] pb-3">
+        <div class="w-10 h-10 rounded-xl bg-[#81b64c]/20 border border-[#81b64c]/40 flex items-center justify-center text-xl">🎓</div>
+        <div>
+          <h3 class="font-extrabold text-sm text-white">Coach's Masterclass Breakdown</h3>
+          <p id="op-lesson-subtitle" class="text-xs text-neutral-400">Step through the moves to see live square explanations</p>
+        </div>
+      </div>
+
+      <!-- Live Move-by-Move Narration Box -->
+      <div class="bg-[#1e1c19] border border-[#3a3732] rounded-xl p-3.5">
+        <div class="text-[10px] font-extrabold uppercase tracking-wider text-[#81b64c] mb-1">Current Move Explanation</div>
+        <p id="op-live-step-note" class="text-xs sm:text-[13px] text-neutral-100 leading-relaxed font-medium">
+          Click "Next Move ▶" below the board to walk through each move and see why it is played!
+        </p>
+      </div>
+
+      <!-- Core Strategic Concepts -->
+      <div class="bg-[#302e2b] rounded-xl p-3.5 border border-[#423f3b]">
+        <h4 class="text-xs font-extrabold uppercase tracking-wider text-amber-400 mb-1.5">💡 Core Strategic Concepts</h4>
+        <p id="op-core-concepts" class="text-xs text-neutral-200 leading-relaxed"></p>
+      </div>
+
+      <!-- Plans for White & Black -->
+      <div class="grid grid-cols-1 gap-2.5">
+        <div class="bg-[#1e1c19] rounded-xl p-3 border border-[#34312d]">
+          <h4 class="text-xs font-bold text-white mb-1">♔ White's Main Plan</h4>
+          <p id="op-plan-white" class="text-xs text-neutral-300 leading-relaxed"></p>
+        </div>
+        <div class="bg-[#1e1c19] rounded-xl p-3 border border-[#34312d]">
+          <h4 class="text-xs font-bold text-white mb-1">♚ Black's Main Plan</h4>
+          <p id="op-plan-black" class="text-xs text-neutral-300 leading-relaxed"></p>
+        </div>
+      </div>
+
+      <!-- Tactical Trap / Watch Out For -->
+      <div class="bg-rose-950/30 border border-rose-500/30 rounded-xl p-3.5">
+        <h4 class="text-xs font-extrabold uppercase tracking-wider text-rose-300 mb-1">⚠️ Key Tactical Motif / Trap</h4>
+        <p id="op-trap-note" class="text-xs text-neutral-200 leading-relaxed"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================================================================== -->
+  <!-- VIEW 3: TACTICS & PUZZLES TRAINER                                        -->
+  <!-- ======================================================================== -->
+  <section id="view-puzzles" class="hidden flex-1 max-w-[1160px] w-full mx-auto px-3 sm:px-6 py-4 flex flex-col lg:flex-row items-center lg:items-start justify-center gap-6">
+    <div class="w-full max-w-[540px] flex flex-col gap-2.5">
+      <div class="bg-[#262421] px-4 py-2.5 rounded-lg border border-[#34312d] flex items-center justify-between">
+        <div>
+          <span id="puzzle-theme-badge" class="text-[11px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded bg-amber-500/20 text-amber-300">Knight Fork</span>
+          <h3 id="puzzle-title" class="text-sm font-extrabold text-white mt-1">Puzzle #1: Royal Family Fork</h3>
+        </div>
+        <div class="text-right">
+          <div class="text-[11px] text-neutral-400">To Move</div>
+          <div id="puzzle-turn-label" class="text-xs font-extrabold text-[#81b64c]">White to Win</div>
+        </div>
+      </div>
+
+      <div id="puzzle-board-wrapper" class="theme-green relative w-full aspect-square">
+        <div id="puzzle-chessboard" class="chess-board-grid"></div>
+        <svg id="puzzle-arrow-overlay" viewBox="0 0 800 800" class="absolute inset-0 w-full h-full pointer-events-none z-20"></svg>
+      </div>
+    </div>
+
+    <div class="w-full max-w-[540px] lg:w-[420px] bg-[#262421] rounded-xl border border-[#34312d] p-4 flex flex-col gap-4">
+      <div class="flex items-center justify-between border-b border-[#34312d] pb-3">
+        <div class="flex items-center gap-2">
+          <span class="text-2xl">🧩</span>
+          <div>
+            <h3 class="font-extrabold text-sm text-white">Tactical Pattern Trainer</h3>
+            <p class="text-xs text-neutral-400">Spot the winning tactical blow</p>
+          </div>
+        </div>
+        <span id="puzzle-progress-pill" class="text-xs font-mono font-bold bg-[#1e1c19] px-2.5 py-1 rounded text-[#81b64c]">1 / 6</span>
+      </div>
+
+      <div id="puzzle-coach-box" class="bg-[#1e1c19] border border-[#3a3732] rounded-xl p-3.5">
+        <div id="puzzle-status-badge" class="inline-block px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-[#81b64c]/20 text-[#9ce05a] mb-2">
+          YOUR TURN
+        </div>
+        <p id="puzzle-coach-text" class="text-xs sm:text-[13px] text-neutral-100 leading-relaxed">
+          Find the sharpest tactical move on the board! Look for checks, captures, and double attacks.
+        </p>
+      </div>
+
+      <div class="flex flex-col gap-2">
+        <button onclick="showPuzzleHint()" class="w-full py-2.5 px-4 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-bold text-xs border border-amber-500/40 transition">
+          💡 Show Hint Arrow & Explain Idea
+        </button>
+        <div class="grid grid-cols-2 gap-2">
+          <button onclick="loadPuzzle(currentPuzzleIndex)" class="py-2 px-3 rounded-lg bg-[#35332e] hover:bg-[#43403a] text-neutral-200 font-bold text-xs">
+            ↺ Retry Puzzle
+          </button>
+          <button onclick="nextPuzzle()" class="py-2 px-3 rounded-lg bg-[#81b64c] hover:bg-[#95cc5c] text-white font-extrabold text-xs">
+            Next Puzzle ▶
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    /**
+     * ============================================================================
+     * 1. SOUND SYNTHESIZER (Web Audio API)
+     * ============================================================================
+     */
+    class SoundEffects {
+      constructor() {
+        this.enabled = true;
+        this.ctx = null;
+      }
+      init() {
+        if (!this.ctx) {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (AudioCtx) this.ctx = new AudioCtx();
+        }
+        if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+      }
+      playTone(freq, type, duration, gainVal = 0.15, slideTo = null) {
+        if (!this.enabled) return;
+        try {
+          this.init();
+          if (!this.ctx) return;
+          const now = this.ctx.currentTime;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = type;
+          osc.frequency.setValueAtTime(freq, now);
+          if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, now + duration);
+          gain.gain.setValueAtTime(gainVal, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(now);
+          osc.stop(now + duration);
+        } catch (e) {}
+      }
+      move() { this.playTone(260, 'triangle', 0.08, 0.16, 140); }
+      capture() {
+        this.playTone(180, 'sawtooth', 0.11, 0.18, 75);
+        setTimeout(() => this.playTone(320, 'triangle', 0.07, 0.12, 160), 25);
+      }
+      check() {
+        this.playTone(540, 'sine', 0.14, 0.18, 440);
+        setTimeout(() => this.playTone(680, 'sine', 0.18, 0.18, 520), 90);
+      }
+      castle() {
+        this.playTone(250, 'triangle', 0.07, 0.15, 160);
+        setTimeout(() => this.playTone(310, 'triangle', 0.08, 0.15, 200), 75);
+      }
+      gameOver() {
+        this.playTone(440, 'triangle', 0.16, 0.18);
+        setTimeout(() => this.playTone(554, 'triangle', 0.16, 0.18), 130);
+        setTimeout(() => this.playTone(659, 'triangle', 0.35, 0.2), 260);
+      }
+    }
+    const sfx = new SoundEffects();
+
+    function toggleSound() {
+      sfx.enabled = !sfx.enabled;
+      const btn = document.getElementById('sound-toggle-btn');
+      const iconOn = document.getElementById('sound-icon-on');
+      const iconOff = document.getElementById('sound-icon-off');
+      if (sfx.enabled) {
+        iconOn.classList.remove('hidden');
+        iconOff.classList.add('hidden');
+        btn.classList.add('text-[#81b64c]');
+        sfx.move();
+      } else {
+        iconOn.classList.add('hidden');
+        iconOff.classList.remove('hidden');
+        btn.classList.remove('text-[#81b64c]');
+      }
+    }
+
+    /**
+     * ============================================================================
+     * 2. CRISP STAUNTON-STYLE SVG CHESS PIECES
+     * ============================================================================
+     */
+    const PIECE_SVGS = {
+      wP: `<svg class="piece-svg" viewBox="0 0 45 45"><path d="M22.5 9c-2.21 0-4 1.79-4 4 0 .89.29 1.71.78 2.38C17.33 16.5 16 18.59 16 21c0 2.03.94 3.84 2.41 5.03-3 1.06-7.41 5.55-7.41 13.47h23c0-7.92-4.41-12.41-7.41-13.47 1.47-1.19 2.41-3 2.41-5.03 0-2.41-1.33-4.5-3.28-5.62.49-.67.78-1.49.78-2.38 0-2.21-1.79-4-4-4z" fill="#fff" stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round"/></svg>`,
+      wN: `<svg class="piece-svg" viewBox="0 0 45 45"><g fill="none" fill-rule="evenodd" stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M 22,10 C 32.5,11 38.5,18 38,39 L 15,39 C 15,30 25,32.5 23,18" fill="#ffffff"/><path d="M 24,18 C 24.38,20.91 18.45,25.37 16,27 C 13,29 13.18,31.34 11,31 C 9.958,30.06 12.41,27.96 11,28 C 10,28 11.19,29.23 10,30 C 9,30 5.997,31 6,26 C 6,24 12,14 12,14 C 12,14 13.89,12.1 14,10.5 C 13.27,9.506 13.5,8.5 13.5,7.5 C 14.5,6.5 16.5,10 16.5,10 L 18.5,10 C 18.5,10 19.28,8.008 21,7 C 22,7 22,10 22,10" fill="#ffffff"/><path d="M 9.5 25.5 A 0.5 0.5 0 1 1 8.5,25.5 A 0.5 0.5 0 1 1 9.5 25.5 z" fill="#1a1a1a"/><path d="M 15 15.5 A 0.5 1.5 0 1 1 14,15.5 A 0.5 1.5 0 1 1 15 15.5 z" transform="matrix(0.866,0.5,-0.5,0.866,9.693,-5.173)" fill="#1a1a1a"/></g></svg>`,
+      wB: `<svg class="piece-svg" viewBox="0 0 45 45"><g fill="none" fill-rule="evenodd" stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><g fill="#ffffff" stroke-linecap="butt"><path d="M9 36c3.39-.97 10.11.43 13.5-2 3.39 2.43 10.11 1.03 13.5 2 0 0 1.65.54 3 2-.68.97-1.65.99-3 .5-3.39-.97-10.11.46-13.5-1-3.39 1.46-10.11.03-13.5 1-1.354.49-2.323.47-3-.5 1.354-1.94 3-2 3-2z"/><path d="M15 32c2.5 2.5 12.5 2.5 15 0 .5-1.5 0-2 0-2 0-2.5-2.5-4-2.5-4 5.5-1.5 6-11.5-5-15.5-11 4-10.5 14-5 15.5 0 0-2.5 1.5-2.5 4 0 0-.5.5 0 2z"/><path d="M25 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 1 1 5 0z"/></g><path d="M17.5 26h10M15 30h15m-7.5-14.5v5M20 18h5" stroke-linejoin="miter"/></g></svg>`,
+      wR: `<svg class="piece-svg" viewBox="0 0 45 45"><g fill="#ffffff" fill-rule="evenodd" stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 39h27v-3H9v3zM12 36v-4h21v4H12zM11 14V9h4v2h5V9h5v2h5V9h4v5" stroke-linecap="butt"/><path d="M34 14l-3 3H14l-3-3"/><path d="M31 17v12.5H14V17" stroke-linecap="butt" stroke-linejoin="miter"/><path d="M31 29.5l1.5 2.5h-20l1.5-2.5"/><path d="M11 14h23" fill="none" stroke-linejoin="miter"/></g></svg>`,
+      wQ: `<svg class="piece-svg" viewBox="0 0 45 45"><g fill="#ffffff" fill-rule="evenodd" stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12a2 2 0 1 1-4 0 2 2 0 1 1 4 0zM24.5 7.5a2 2 0 1 1-4 0 2 2 0 1 1 4 0zM41 12a2 2 0 1 1-4 0 2 2 0 1 1 4 0zM16 8.5a2 2 0 1 1-4 0 2 2 0 1 1 4 0zM33 9a2 2 0 1 1-4 0 2 2 0 1 1 4 0z"/><path d="M9 26c8.5-1.5 21-1.5 27 0l2-12-7 11V11l-5.5 13.5-3-15-3 15-5.5-14V25L7 14l2 12z" stroke-linecap="butt"/><path d="M9 26c0 2 1.5 2 2.5 4 1 1.5 1 1 .5 3.5-1.5 1-1.5 2.5-1.5 2.5-1.5 1.5.5 2.5.5 2.5 6.5 1 16.5 1 23 0 0 0 1.5-1 0-2.5 0 0 .5-1.5-1-2.5-.5-2.5-.5-2 .5-3.5 1-2 2.5-2 2.5-4-8.5-1.5-18.5-1.5-27 0z" stroke-linecap="butt"/><path d="M11.5 30c3.5-1 18.5-1 22 0M12 33.5c6-1 15-1 21 0" fill="none"/></g></svg>`,
+      wK: `<svg class="piece-svg" viewBox="0 0 45 45"><g fill="none" fill-rule="evenodd" stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22.5 11.63V6M20 8h5" stroke-linejoin="miter"/><path d="M22.5 25s4.5-7.5 3-10.5c0 0-1-2.5-3-2.5s-3 2.5-3 2.5c-1.5 3 3 10.5 3 10.5" fill="#ffffff" stroke-linecap="butt" stroke-linejoin="miter"/><path d="M11.5 37c5.5 3.5 15.5 3.5 21 0v-7s9-4.5 6-10.5c-4-6.5-13.5-3.5-16 4V27v-3.5c-3.5-7.5-13-10.5-16-4-3 6 5 10 5 10V37z" fill="#ffffff"/><path d="M11.5 30c5.5-3 15.5-3 21 0m-21 3.5c5.5-3 15.5-3 21 0m-21 3.5c5.5-3 15.5-3 21 0"/></g></svg>`,
+      bP: `<svg class="piece-svg" viewBox="0 0 45 45"><path d="M22.5 9c-2.21 0-4 1.79-4 4 0 .89.29 1.71.78 2.38C17.33 16.5 16 18.59 16 21c0 2.03.94 3.84 2.41 5.03-3 1.06-7.41 5.55-7.41 13.47h23c0-7.92-4.41-12.41-7.41-13.47 1.47-1.19 2.41-3 2.41-5.03 0-2.41-1.33-4.5-3.28-5.62.49-.67.78-1.49.78-2.38 0-2.21-1.79-4-4-4z" fill="#2b2927" stroke="#111" stroke-width="1.8" stroke-linecap="round"/></svg>`,
+      bN: `<svg class="piece-svg" viewBox="0 0 45 45"><g fill="none" fill-rule="evenodd" stroke="#111" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M 22,10 C 32.5,11 38.5,18 38,39 L 15,39 C 15,30 25,32.5 23,18" fill="#2b2927"/><path d="M 24,18 C 24.38,20.91 18.45,25.37 16,27 C 13,29 13.18,31.34 11,31 C 9.958,30.06 12.41,27.96 11,28 C 10,28 11.19,29.23 10,30 C 9,30 5.997,31 6,26 C 6,24 12,14 12,14 C 12,14 13.89,12.1 14,10.5 C 13.27,9.506 13.5,8.5 13.5,7.5 C 14.5,6.5 16.5,10 16.5,10 L 18.5,10 C 18.5,10 19.28,8.008 21,7 C 22,7 22,10 22,10" fill="#2b2927"/><path d="M 9.5 25.5 A 0.5 0.5 0 1 1 8.5,25.5 A 0.5 0.5 0 1 1 9.5 25.5 z" fill="#ececec" stroke="#ececec"/><path d="M 15 15.5 A 0.5 1.5 0 1 1 14,15.5 A 0.5 1.5 0 1 1 15 15.5 z" transform="matrix(0.866,0.5,-0.5,0.866,9.693,-5.173)" fill="#ececec" stroke="#ececec"/><path d="M 24.55,10.4 L 24.1,11.85 L 24.6,12 C 27.75,13 30.25,14.49 32.5,18.75 C 34.75,23.01 35.75,29.06 35.25,39 L 35.2,39.5 L 37.45,39.5 L 37.5,39 C 38,28.94 36.62,22.15 34.25,17.66 C 31.88,13.17 28.46,11.02 25.06,10.5 L 24.55,10.4 z" fill="#ececec" stroke="none"/></g></svg>`,
+      bB: `<svg class="piece-svg" viewBox="0 0 45 45"><g fill="none" fill-rule="evenodd" stroke="#111" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><g fill="#2b2927" stroke-linecap="butt"><path d="M9 36c3.39-.97 10.11.43 13.5-2 3.39 2.43 10.11 1.03 13.5 2 0 0 1.65.54 3 2-.68.97-1.65.99-3 .5-3.39-.97-10.11.46-13.5-1-3.39 1.46-10.11.03-13.5 1-1.354.49-2.323.47-3-.5 1.354-1.94 3-2 3-2z"/><path d="M15 32c2.5 2.5 12.5 2.5 15 0 .5-1.5 0-2 0-2 0-2.5-2.5-4-2.5-4 5.5-1.5 6-11.5-5-15.5-11 4-10.5 14-5 15.5 0 0-2.5 1.5-2.5 4 0 0-.5.5 0 2z"/><path d="M25 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 1 1 5 0z"/></g><path d="M17.5 26h10M15 30h15m-7.5-14.5v5M20 18h5" stroke="#ececec" stroke-linejoin="miter"/></g></svg>`,
+      bR: `<svg class="piece-svg" viewBox="0 0 45 45"><g fill="#2b2927" fill-rule="evenodd" stroke="#111" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 39h27v-3H9v3zM12.5 32l1.5-2.5h17l1.5 2.5h-20zM12 36v-4h21v4H12z" stroke-linecap="butt"/><path d="M14 29.5v-13h17v13H14z" stroke-linecap="butt" stroke-linejoin="miter"/><path d="M14 16.5L11 14h23l-3 2.5H14zM11 14V9h4v2h5V9h5v2h5V9h4v5H11z" stroke-linecap="butt"/><path d="M12 35.5h21M13 31.5h19M14 29.5h17M14 16.5h17M11 14h23" fill="none" stroke="#ececec" stroke-width="1.2" stroke-linejoin="miter"/></g></svg>`,
+      bQ: `<svg class="piece-svg" viewBox="0 0 45 45"><g fill="#2b2927" fill-rule="evenodd" stroke="#111" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><g stroke="none"><circle cx="6" cy="12" r="2.75"/><circle cx="14" cy="9" r="2.75"/><circle cx="22.5" cy="8" r="2.75"/><circle cx="31" cy="9" r="2.75"/><circle cx="39" cy="12" r="2.75"/></g><path d="M9 26c8.5-1.5 21-1.5 27 0l2.5-12.5L31 25l-.3-14.1-5.2 13.6-3-14.5-3 14.5-5.2-13.6L14 25 6.5 13.5 9 26z" stroke-linecap="butt"/><path d="M9 26c0 2 1.5 2 2.5 4 1 1.5 1 1 .5 3.5-1.5 1-1.5 2.5-1.5 2.5-1.5 1.5.5 2.5.5 2.5 6.5 1 16.5 1 23 0 0 0 1.5-1 0-2.5 0 0 .5-1.5-1-2.5-.5-2.5-.5-2 .5-3.5 1-2 2.5-2 2.5-4-8.5-1.5-18.5-1.5-27 0z" stroke-linecap="butt"/><path d="M11 38.5a35 35 1 0 0 23 0" fill="none" stroke-linecap="butt"/><path d="M11 29a35 35 1 0 1 23 0M12.5 31.5h20M11.5 34.5a35 35 1 0 0 22 0M10.5 37.5a35 35 1 0 0 24 0" fill="none" stroke="#ececec" stroke-width="1.2"/></g></svg>`,
+      bK: `<svg class="piece-svg" viewBox="0 0 45 45"><g fill="none" fill-rule="evenodd" stroke="#111" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22.5 11.63V6" stroke-linejoin="miter"/><path d="M22.5 25s4.5-7.5 3-10.5c0 0-1-2.5-3-2.5s-3 2.5-3 2.5c-1.5 3 3 10.5 3 10.5" fill="#2b2927" stroke-linecap="butt" stroke-linejoin="miter"/><path d="M11.5 37c5.5 3.5 15.5 3.5 21 0v-7s9-4.5 6-10.5c-4-6.5-13.5-3.5-16 4V27v-3.5c-3.5-7.5-13-10.5-16-4-3 6 5 10 5 10V37z" fill="#2b2927"/><path d="M20 8h5" stroke-linejoin="miter"/><path d="M32 29.5s8.5-4 6.03-9.65C34.15 14 25 18 22.5 24.5l.01 2.1-.01-2.1C20 18 9.906 14 6.997 19.85c-2.497 5.65 4.853 9 4.853 9M11.5 30c5.5-3 15.5-3 21 0m-21 3.5c5.5-3 15.5-3 21 0m-21 3.5c5.5-3 15.5-3 21 0" stroke="#ececec" stroke-width="1.2"/></g></svg>`
+    };
+
+    /**
+     * ============================================================================
+     * 3. COMPREHENSIVE 36-OPENING ENCYCLOPEDIA DATABASE
+     * ============================================================================
+     */
+    const OPENINGS_DATABASE = [
+      // OPEN GAMES (1.e4 e5)
+      {
+        id: 'italian-game', eco: 'C50', name: 'Italian Game', category: 'Open Games', side: 'w',
+        moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Bc4'],
+        keySquares: ['f7', 'd4', 'c4'],
+        concepts: 'Rapid development, central control, and direct pressure against Black’s weakest square (f7).',
+        planWhite: 'Castle kingside quickly, play c3 and d4 to build a strong pawn center, and activate rooks.',
+        planBlack: 'Develop the dark-squared bishop to c5 or e7, castle early, and challenge White’s center with ...d6 or ...d5.',
+        trap: 'Watch out for the Fried Liver Attack if Black plays ...Nf6 without guarding g5, or the Blackburne Shilling Gambit trap!',
+        stepNotes: [
+          '1. e4 claims central space and opens diagonals for the Queen and light-squared Bishop.',
+          '1... e5 mirrors White’s central claim and stops White from playing d4 uncontested.',
+          '2. Nf3 develops a knight toward the center and immediately attacks the undefended e5 pawn.',
+          '2... Nc6 defends e5 naturally while developing a queenside minor piece.',
+          '3. Bc4 targets f7 — the only pawn protected solely by Black’s King — preparing rapid castling.'
+        ]
+      },
+      {
+        id: 'giuoco-piano', eco: 'C53', name: 'Giuoco Piano (Quiet Game)', category: 'Open Games', side: 'w',
+        moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Bc4', 'Bc5', 'c3', 'Nf6', 'd3'],
+        keySquares: ['d4', 'c3', 'e4'],
+        concepts: 'Slow, maneuvering buildup where White prepares d4 or conducts a kingside knight transfer (Nbd2-f1-g3).',
+        planWhite: 'Support the center with c3 and d3, castle short, and gradually expand on either wing.',
+        planBlack: 'Maintain symmetrical piece harmony, castle kingside, and strike back in the center with ...d5 when ready.',
+        trap: 'If White rushes d4 too early without support, Black can counterattack on e4 with ...Nxe4!',
+        stepNotes: [
+          '1. e4 claims central space.', '1... e5 responds symmetrically.', '2. Nf3 attacks e5.', '2... Nc6 defends e5.',
+          '3. Bc4 aims at f7.', '3... Bc5 develops Black’s bishop actively and eyes f2.',
+          '4. c3 prepares to build a broad pawn center with d4 while giving the Bc4 a retreat square on c2.',
+          '4... Nf6 develops and puts immediate counter-pressure on White’s e4 pawn.',
+          '5. d3 solidly defends e4, entering the modern Giuoco Pianissimo positional battle.'
+        ]
+      },
+      {
+        id: 'fried-liver', eco: 'C57', name: 'Fried Liver Attack', category: 'Open Games', side: 'w',
+        moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Bc4', 'Nf6', 'Ng5', 'd5', 'exd5', 'Nxd5', 'Nxf7'],
+        keySquares: ['f7', 'g5', 'd5'],
+        concepts: 'Aggressive tactical sacrifice on f7 that lures the Black King into the open center.',
+        planWhite: 'Follow up with Qf3+ and Nc3 to pile unstoppable pressure onto the pinned knight on d5.',
+        planBlack: 'Avoid 5...Nxd5! Instead play 5...Na5 (Polerio Defense) to attack White’s bishop and gain huge counterplay.',
+        trap: 'After 6. Nxf7 Kxf7 7. Qf3+ Ke6 8. Nc3, Black’s King is stranded in the middle of the board!',
+        stepNotes: [
+          '1. e4 e5 2. Nf3 Nc6 3. Bc4 enters the Italian Game.',
+          '3... Nf6 invites White into the sharp Two Knights Defense.',
+          '4. Ng5! Double-attacks f7 with both the Knight and Bishop.',
+          '4... d5 is Black’s only good move, blocking the c4-f7 diagonal.',
+          '5. exd5 removes the blocker. Capturing back with 5...Nxd5 is a famous mistake!',
+          '6. Nxf7!! Sacrifices the knight to drag Black’s King out into a devastating attack.'
+        ]
+      },
+      {
+        id: 'ruy-lopez', eco: 'C60', name: 'Ruy Lopez (Spanish Game)', category: 'Open Games', side: 'w',
+        moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6', 'Ba4', 'Nf6', 'O-O'],
+        keySquares: ['b5', 'e5', 'd4'],
+        concepts: 'Long-term strategic pressure on Black’s e5 pawn by threatening the defender on c6.',
+        planWhite: 'Castle early, play Re1 and c3, then strike with d4 to dominate the center.',
+        planBlack: 'Drive the bishop back with ...a6 and ...b5, develop solidly with ...Be7, and hold the e5 stronghold.',
+        trap: 'Noah’s Ark Trap: If White greedily grabs pawns with Bb3-c2-d4, Black can trap the light-squared bishop with ...c5 and ...c4!',
+        stepNotes: [
+          '1. e4 e5 2. Nf3 Nc6 sets up the classic Open Game.',
+          '3. Bb5! Puts indirect pressure on e5 by eyeing its defender on c6.',
+          '3... a6 (Morphy Defense) asks the bishop to declare its intentions immediately.',
+          '4. Ba4 keeps the tension alive along the a4-e8 diagonal.',
+          '4... Nf6 develops and counterattacks White’s e4 pawn.',
+          '5. O-O tucks the King to safety and leaves e4 indirectly defended via Re1.'
+        ]
+      },
+      {
+        id: 'scotch-game', eco: 'C45', name: 'Scotch Game', category: 'Open Games', side: 'w',
+        moves: ['e4', 'e5', 'Nf3', 'Nc6', 'd4', 'exd4', 'Nxd4'],
+        keySquares: ['d4', 'e5', 'c6'],
+        concepts: 'Immediate central confrontation that opens lines early for dynamic piece activity.',
+        planWhite: 'Dominate central space with the e4 pawn and active knight on d4, often castling queenside for an attack.',
+        planBlack: 'Challenge White’s centralized pieces with ...Bc5, ...Qf6, or ...Nf6 followed by ...Bb4.',
+        trap: 'If Black plays 4...Bc5, White can play 5. Nxc6 Qf6 6. Qd2! maintaining an extra central pawn grip.',
+        stepNotes: [
+          '1. e4 e5 2. Nf3 Nc6.',
+          '3. d4! Immediately challenges Black’s e5 pawn before Black can reinforce it.',
+          '3... exd4 is virtually forced to avoid losing central space.',
+          '4. Nxd4 recaptures with a centralized knight and open diagonals for both bishops.'
+        ]
+      },
+      {
+        id: 'kings-gambit', eco: 'C30', name: "King's Gambit", category: 'Open Games', side: 'w',
+        moves: ['e4', 'e5', 'f4', 'exf4', 'Nf3'],
+        keySquares: ['f4', 'f7', 'd4'],
+        concepts: 'Romantic-era pawn sacrifice to deflect Black’s e5 pawn and open the f-file for White’s rook.',
+        planWhite: 'Build a massive center with d4, recapture on f4 with Bxf4, and launch a kingside attack.',
+        planBlack: 'Either hold the pawn with ...g5 or counterattack in the center immediately with ...d5!',
+        trap: 'Never play 3...Qh4+ prematurely if White has Nf3, and beware of rapid f-file rook batteries.',
+        stepNotes: [
+          '1. e4 e5.',
+          '2. f4! Offers the f-pawn to lure Black’s e-pawn away from the center.',
+          '2... exf4 accepts the gambit.',
+          '3. Nf3 prevents Black from playing ...Qh4+ and prepares d4.'
+        ]
+      },
+      {
+        id: 'vienna-game', eco: 'C25', name: 'Vienna Game', category: 'Open Games', side: 'w',
+        moves: ['e4', 'e5', 'Nc3', 'Nf6', 'f4'],
+        keySquares: ['d5', 'f4', 'e4'],
+        concepts: 'Flexible control of d5 and e4 before launching a delayed, well-supported f4 kingside thrust.',
+        planWhite: 'Control d5 with Nc3, develop Bc4, and break open the kingside with f4.',
+        planBlack: 'Strike in the center with ...d5! — the classic counter to flank f-pawn advances.',
+        trap: 'In the Vienna Gambit (2...Nf6 3. f4), taking 3...exf4 allows 4. e5!, chasing Black’s knight backward.',
+        stepNotes: [
+          '1. e4 e5.',
+          '2. Nc3 develops a knight, protects e4, and clamps down on d5.',
+          '2... Nf6 develops actively.',
+          '3. f4! Launches the Vienna Gambit with e4 already protected.'
+        ]
+      },
+      {
+        id: 'petrovs-defense', eco: 'C42', name: "Petrov's Defense (Russian Game)", category: 'Open Games', side: 'b',
+        moves: ['e4', 'e5', 'Nf3', 'Nf6', 'Nxe5', 'd6', 'Nf3', 'Nxe4'],
+        keySquares: ['e4', 'e5', 'd5'],
+        concepts: 'Ultra-solid counterattacking defense where Black mirrors White’s knight aggression instead of defending passively.',
+        planWhite: 'Drive the Black knight back with d4 and Bd3, aiming for a slight space and development lead.',
+        planBlack: 'Anchor the knight on e4 or retreat solidly, play ...d5 and ...Be7, and neutralize White’s initiative.',
+        trap: 'Never play 3. Nxe5 Nxe4?? 4. Qe2! — if Black’s knight retreats, 5. Nc6+ wins Black’s Queen!',
+        stepNotes: [
+          '1. e4 e5 2. Nf3.',
+          '2... Nf6! Counterattacks White’s e4 pawn instead of defending e5.',
+          '3. Nxe5 captures the pawn.',
+          '3... d6! Crucial intermediate move: kicks White’s knight before recapturing on e4.',
+          '4. Nf3 Nxe4 restores material equality with a rock-solid structure.'
+        ]
+      },
+      {
+        id: 'philidor-defense', eco: 'C41', name: 'Philidor Defense', category: 'Open Games', side: 'b',
+        moves: ['e4', 'e5', 'Nf3', 'd6', 'd4', 'Nf6', 'Nc3', 'Nbd7'],
+        keySquares: ['e5', 'd6', 'c6'],
+        concepts: 'Solid, compact pawn chain defending e5 while keeping flexibility for ...c6 and ...Be7.',
+        planWhite: 'Seize space with d4 and Bc4, targeting the slightly cramped Black setup.',
+        planBlack: 'Hold the e5 strongpoint with ...Nbd7 and ...c6, then counterattack when White overextends.',
+        trap: 'Legal’s Mate trap happens in the Philidor when Black pins Nf3 with ...Bg4 before castling!',
+        stepNotes: [
+          '1. e4 e5 2. Nf3.',
+          '2... d6 defends e5 solidly with a pawn.',
+          '3. d4 challenges the center immediately.',
+          '3... Nf6 develops and puts pressure on e4.'
+        ]
+      },
+      {
+        id: 'four-knights', eco: 'C47', name: 'Four Knights Game', category: 'Open Games', side: 'w',
+        moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Nc3', 'Nf6', 'Bb5'],
+        keySquares: ['d5', 'e4', 'b5'],
+        concepts: 'Classical symmetrical development following every golden opening principle before central tension breaks.',
+        planWhite: 'Pin the c6 knight with Bb5 or open the center immediately with d4 (Scotch Four Knights).',
+        planBlack: 'Mirror with ...Bb4 (Double Ruy Lopez) or break symmetry with ...Nd4.',
+        trap: 'Copying White’s moves blindly in the Four Knights leads to a dangerous pin after Nd5!',
+        stepNotes: [
+          '1. e4 e5 2. Nf3 Nc6.',
+          '3. Nc3 develops the third knight toward the center.',
+          '3... Nf6 brings out all four knights.',
+          '4. Bb5 enters the Spanish Four Knights.'
+        ]
+      },
+      {
+        id: 'ponziani-opening', eco: 'C44', name: 'Ponziani Opening', category: 'Open Games', side: 'w',
+        moves: ['e4', 'e5', 'Nf3', 'Nc6', 'c3', 'Nf6', 'd4'],
+        keySquares: ['d4', 'c3', 'e5'],
+        concepts: 'Early c3 preparation to build an unshakable e4+d4 pawn duo on move 4.',
+        planWhite: 'Establish pawns on e4 and d4 and use the open a4-e8 diagonal for Qa4 pins.',
+        planBlack: 'Strike immediately with 3...d5! or 3...Nf6 4. d4 Nxe4 to challenge White’s slow knight square.',
+        trap: 'If Black plays 3...Bc5?, White plays 4. d4 exd4 5. cxd4 Bb4+ 6. Bd2 with a huge center.',
+        stepNotes: [
+          '1. e4 e5 2. Nf3 Nc6.',
+          '3. c3 prepares d4 on the very next move.',
+          '3... Nf6 counterattacks e4.',
+          '4. d4 claims the full center.'
+        ]
+      },
+
+      // SEMI-OPEN GAMES (1.e4 ...)
+      {
+        id: 'sicilian-najdorf', eco: 'B90', name: 'Sicilian Defense: Najdorf', category: 'Semi-Open', side: 'b',
+        moves: ['e4', 'c5', 'Nf3', 'd6', 'd4', 'cxd4', 'Nxd4', 'Nf6', 'Nc3', 'a6'],
+        keySquares: ['c5', 'd5', 'b5'],
+        concepts: 'Asymmetrical counterattacking masterpiece: Black trades a flank c-pawn for White’s central d-pawn and controls b5.',
+        planWhite: 'Launch a ferocious kingside pawn storm (Be3, f3, Qd2, O-O-O, g4-g5) or play positional Be2.',
+        planBlack: 'Expand on the queenside with ...b5, use the half-open c-file for rooks, and break with ...e5 or ...d5.',
+        trap: 'Never play ...e5 while White’s knight can jump into d5 or f5 unchallenged!',
+        stepNotes: [
+          '1. e4 c5! The Sicilian fights for d4 asymmetrically.',
+          '2. Nf3 d6 3. d4 cxd4 4. Nxd4 trades Black’s c-pawn for White’s d-pawn.',
+          '4... Nf6 develops and attacks e4; 5. Nc3 defends it.',
+          '5... a6! The hallmark Najdorf move — stops Bb5/Nb5 and prepares ...b5 expansion.'
+        ]
+      },
+      {
+        id: 'sicilian-dragon', eco: 'B70', name: 'Sicilian Defense: Dragon', category: 'Semi-Open', side: 'b',
+        moves: ['e4', 'c5', 'Nf3', 'd6', 'd4', 'cxd4', 'Nxd4', 'Nf6', 'Nc3', 'g6'],
+        keySquares: ['g7', 'd4', 'c4'],
+        concepts: 'Fianchettoes the dark-squared bishop onto the long h8-a1 diagonal to breathe fire across the entire board.',
+        planWhite: 'Yugoslav Attack: Be3, f3, Qd2, O-O-O, h4-h5 to pry open Black’s kingside.',
+        planBlack: 'Castle kingside, place a rook on c8, and sacrifice the exchange on c3 to shatter White’s king shelter.',
+        trap: 'One tempo decides the race — every move in opposite-side castling attacks counts!',
+        stepNotes: [
+          '1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3.',
+          '5... g6! Prepares ...Bg7, turning the bishop into a monster along the long diagonal.'
+        ]
+      },
+      {
+        id: 'sicilian-alapin', eco: 'B22', name: 'Sicilian: Alapin Variation', category: 'Semi-Open', side: 'w',
+        moves: ['e4', 'c5', 'c3', 'Nf6', 'e5', 'Nd5', 'd4'],
+        keySquares: ['d4', 'c3', 'e5'],
+        concepts: 'Anti-Sicilian system that sidesteps massive Najdorf/Dragon theory to build a classical e4+d4 pawn center.',
+        planWhite: 'Recapture on d4 with the c3 pawn, keeping a strong central pawn duo and easy piece development.',
+        planBlack: 'Challenge White’s center immediately with 2...d5 or 2...Nf6 followed by ...Nc6 and ...d6.',
+        trap: 'If Black plays 2...d5 3. exd5 Qxd5 4. d4, White gains easy tempi against Black’s early Queen.',
+        stepNotes: [
+          '1. e4 c5.',
+          '2. c3! Prepares d4 so White can recapture with a pawn instead of a piece.',
+          '2... Nf6 attacks e4; 3. e5 chases the knight to d5; 4. d4 seizes the center.'
+        ]
+      },
+      {
+        id: 'french-defense', eco: 'C00', name: 'French Defense', category: 'Semi-Open', side: 'b',
+        moves: ['e4', 'e6', 'd4', 'd5', 'Nc3', 'Bb4'],
+        keySquares: ['d5', 'e4', 'c5'],
+        concepts: 'Solid pawn chain (e6-d5) that invites White to advance e5, then attacks the base of White’s chain with ...c5.',
+        planWhite: 'Gain kingside space with e5 and attack Black’s king while Black is busy on the queenside.',
+        planBlack: 'Undermine White’s d4 base with ...c5, ...Nc6, and ...Qb6, trading off the cramped light-squared bishop.',
+        trap: 'In the Winawer (3...Bb4), watch out for White’s Qg4 attacking the vulnerable g7 pawn!',
+        stepNotes: [
+          '1. e4 e6 prepares a supported ...d5 push.',
+          '2. d4 d5 immediately challenges White’s e4 pawn.',
+          '3. Nc3 defends e4; 3... Bb4 (Winawer) pins the knight to renew pressure on e4.'
+        ]
+      },
+      {
+        id: 'caro-kann', eco: 'B10', name: 'Caro-Kann Defense', category: 'Semi-Open', side: 'b',
+        moves: ['e4', 'c6', 'd4', 'd5', 'Nc3', 'dxe4', 'Nxe4', 'Bf5'],
+        keySquares: ['d5', 'f5', 'c6'],
+        concepts: 'Ultra-reliable defense that supports ...d5 without blocking the light-squared bishop.',
+        planWhite: 'Use extra central space and faster piece development to create attacking chances.',
+        planBlack: 'Develop ...Bf5 or ...Nf6 cleanly, play ...e6, and enjoy a rock-solid endgame pawn structure.',
+        trap: 'Classic Smothered Mate Trap: 1.e4 c6 2.d4 d5 3.Nc3 dxe4 4.Nxe4 Nd7 5.Qe2 Ngf6?? 6.Nd6#!',
+        stepNotes: [
+          '1. e4 c6 prepares ...d5 while keeping the c8-h3 diagonal open.',
+          '2. d4 d5 3. Nc3 dxe4 4. Nxe4.',
+          '4... Bf5! Develops the bishop outside the pawn chain before playing ...e6.'
+        ]
+      },
+      {
+        id: 'scandinavian-defense', eco: 'B01', name: 'Scandinavian Defense', category: 'Semi-Open', side: 'b',
+        moves: ['e4', 'd5', 'exd5', 'Qxd5', 'Nc3', 'Qa5'],
+        keySquares: ['d5', 'a5', 'c6'],
+        concepts: 'Immediate central clash on move 1 that clears the d-file and sets up a solid Caro-Kann-like pawn structure.',
+        planWhite: 'Develop with tempo against Black’s Queen (Nc3, Nf3, d4, Bd2) to build a lead in development.',
+        planBlack: 'Retreat the Queen safely to a5 or d6, play ...c6 and ...Bf5, and castle safely.',
+        trap: 'If Black plays 3...Qe5+?, White blocks with 4. Be2 and gains huge development tempi.',
+        stepNotes: [
+          '1. e4 d5! Immediately strikes White’s e4 pawn.',
+          '2. exd5 Qxd5 3. Nc3 attacks the Queen.',
+          '3... Qa5 keeps the Queen active while preparing ...c6 and ...Bf5.'
+        ]
+      },
+      {
+        id: 'pirc-defense', eco: 'B07', name: 'Pirc Defense', category: 'Semi-Open', side: 'b',
+        moves: ['e4', 'd6', 'd4', 'Nf6', 'Nc3', 'g6'],
+        keySquares: ['g7', 'e5', 'd4'],
+        concepts: 'Hypermodern defense: Black lets White build a big pawn center first, intending to undermine it later.',
+        planWhite: 'Build an imposing center (e4, d4, f4) and attack on the kingside with Be3 and Qd2.',
+        planBlack: 'Fianchetto ...Bg7, castle kingside, and strike White’s center with ...c5 or ...e5.',
+        trap: 'Do not delay castling — White’s Austrian Attack (f4) can break through the center rapidly.',
+        stepNotes: [
+          '1. e4 d6 2. d4 Nf6 3. Nc3 g6 — Black invites White to occupy the center before counterattacking.'
+        ]
+      },
+      {
+        id: 'modern-defense', eco: 'B06', name: 'Modern Defense', category: 'Semi-Open', side: 'b',
+        moves: ['e4', 'g6', 'd4', 'Bg7', 'Nc3', 'd6'],
+        keySquares: ['g7', 'c5', 'd4'],
+        concepts: 'Flexible hypermodern setup delaying ...Nf6 so the g7 bishop exerts unobstructed pressure on d4.',
+        planWhite: 'Claim central space with pawns on c4, d4, e4 and restrict Black’s pieces.',
+        planBlack: 'Target White’s d4 pawn with ...Bg7, ...c5, and ...Nc6.',
+        trap: 'Leaving the center unchallenged for too long allows White to steamroll with f4 and e5.',
+        stepNotes: [
+          '1. e4 g6 2. d4 Bg7 3. Nc3 d6 — maximizes the scope of the dark-squared fianchetto bishop.'
+        ]
+      },
+      {
+        id: 'alekhines-defense', eco: 'B02', name: "Alekhine's Defense", category: 'Semi-Open', side: 'b',
+        moves: ['e4', 'Nf6', 'e5', 'Nd5', 'd4', 'd6'],
+        keySquares: ['e5', 'd5', 'd6'],
+        concepts: 'Provocative hypermodern defense that lures White’s pawns forward so they become overextended targets.',
+        planWhite: 'Maintain a broad pawn center without overextending and suffocate Black’s space.',
+        planBlack: 'Chip away at White’s advanced e5/d4 pawns with ...d6, ...Nc6, and ...Bg4.',
+        trap: 'Chasing the knight with 4 pawns (c4, d4, e5, f4) looks scary, but collapses if Black undermines d4!',
+        stepNotes: [
+          '1. e4 Nf6! Attacks e4 immediately to provoke 2. e5.',
+          '2. e5 Nd5 3. d4 d6 begins undermining White’s advanced pawn front.'
+        ]
+      },
+
+      // CLOSED / QUEEN'S PAWN (1.d4 d5)
+      {
+        id: 'queens-gambit-declined', eco: 'D37', name: "Queen's Gambit Declined", category: 'Queens Pawn', side: 'w',
+        moves: ['d4', 'd5', 'c4', 'e6', 'Nc3', 'Nf6', 'Nf3'],
+        keySquares: ['d5', 'c4', 'e5'],
+        concepts: 'White offers a wing c-pawn to deflect Black’s central d5 pawn; Black maintains a rock-solid central stronghold.',
+        planWhite: 'Apply pressure against d5 with Nc3, Bg5, and cxd5, or launch a queenside minority attack (b4-b5).',
+        planBlack: 'Hold d5 firmly, castle kingside, and free the c8 bishop via ...c6 and ...dxc4 or ...e5.',
+        trap: 'Elephant Trap: If White greedily takes on d5 and plays Nxd5??, Black plays ...Nxd5 8. Bxd8 Bb4+ winning the Queen!',
+        stepNotes: [
+          '1. d4 d5 establishes a symmetrical central anchor.',
+          '2. c4! Offers the c-pawn to challenge Black’s d5 pawn.',
+          '2... e6 declines the gambit, reinforcing d5 with a pawn.',
+          '3. Nc3 Nf6 4. Nf3 develops harmonious central control.'
+        ]
+      },
+      {
+        id: 'queens-gambit-accepted', eco: 'D20', name: "Queen's Gambit Accepted", category: 'Queens Pawn', side: 'b',
+        moves: ['d4', 'd5', 'c4', 'dxc4', 'Nf3', 'Nf6', 'e3'],
+        keySquares: ['c4', 'e4', 'c5'],
+        concepts: 'Black temporarily surrenders the center by capturing on c4, aiming to strike back with ...c5 and active piece play.',
+        planWhite: 'Recapture on c4 with the bishop, build a strong e4+d4 center, and attack.',
+        planBlack: 'Do not try to cling to the c4 pawn! Instead play ...Nf6, ...e6, and ...c5 to equalize freely.',
+        trap: 'Trying to hold the pawn with 3...b5? allows 4. a4 c6 5. axb5 cxb5 6. Qf3! winning Black’s rook in the corner!',
+        stepNotes: [
+          '1. d4 d5 2. c4 dxc4 accepts the gambit.',
+          '3. Nf3 prevents ...e5 and prepares e3 + Bxc4.',
+          '3... Nf6 4. e3 readies the bishop to recapture on c4.'
+        ]
+      },
+      {
+        id: 'slav-defense', eco: 'D10', name: 'Slav Defense', category: 'Queens Pawn', side: 'b',
+        moves: ['d4', 'd5', 'c4', 'c6', 'Nf3', 'Nf6', 'Nc3', 'Bf5'],
+        keySquares: ['d5', 'c6', 'f5'],
+        concepts: 'Supports d5 with ...c6 so Black’s light-squared bishop isn’t locked behind an e6 pawn.',
+        planWhite: 'Pressure d5 and b7, or exchange on d5 to enter a symmetrical structure.',
+        planBlack: 'Develop ...Bf5 or ...Bg4 outside the pawn chain, then play ...e6 and ...Nbd7.',
+        trap: 'Watch out for Qb3 hitting both b7 and d5 right after Black develops the c8 bishop!',
+        stepNotes: [
+          '1. d4 d5 2. c4 c6 reinforces d5 while leaving the c8-h3 diagonal open.',
+          '3. Nf3 Nf6 4. Nc3 Bf5 brings out the light-squared bishop cleanly.'
+        ]
+      },
+      {
+        id: 'london-system', eco: 'D02', name: 'London System', category: 'Queens Pawn', side: 'w',
+        moves: ['d4', 'd5', 'Nf3', 'Nf6', 'Bf4', 'e6', 'e3', 'Bd6', 'Bg3'],
+        keySquares: ['e5', 'f4', 'd4'],
+        concepts: 'Reliable, rock-solid pyramid setup (d4, e3, c3, Bf4) immune to early opening traps.',
+        planWhite: 'Plant a powerful knight on e5, support it with f4, and launch a kingside attack.',
+        planBlack: 'Challenge White’s setup early with ...c5 and ...Qb6, targeting the undefended b2 pawn.',
+        trap: 'If Black trades ...Bxg3, White recaptures hxg3 and gets an open h-file for the rook!',
+        stepNotes: [
+          '1. d4 d5 2. Nf3 Nf6.',
+          '3. Bf4! Develops the dark-squared bishop outside the pawn chain before playing e3.',
+          '3... e6 4. e3 Bd6 5. Bg3 keeps control of the crucial e5 outpost.'
+        ]
+      },
+      {
+        id: 'colle-system', eco: 'D05', name: 'Colle System', category: 'Queens Pawn', side: 'w',
+        moves: ['d4', 'd5', 'Nf3', 'Nf6', 'e3', 'e6', 'Bd3', 'c5', 'c3'],
+        keySquares: ['e4', 'd3', 'h7'],
+        concepts: 'Coiled-spring system where White builds a solid triangle (c3-d4-e3) before unleashing a central e4 break.',
+        planWhite: 'Play Nbd2, O-O, Re1, and push e4 to open lines straight toward Black’s kingside.',
+        planBlack: 'Develop the c8 bishop to f5 or g4 before playing ...e6, or expand on the queenside.',
+        trap: 'Once e4-e5 lands, White’s Bd3 + Nf3 battery points straight at h7 (classic Greek Gift sacrifice!).',
+        stepNotes: [
+          '1. d4 d5 2. Nf3 Nf6 3. e3 e6 4. Bd3 c5 5. c3 sets up the coiled Colle structure.'
+        ]
+      },
+      {
+        id: 'catalan-opening', eco: 'E00', name: 'Catalan Opening', category: 'Queens Pawn', side: 'w',
+        moves: ['d4', 'Nf6', 'c4', 'e6', 'g3', 'd5', 'Bg2'],
+        keySquares: ['g2', 'd5', 'c6'],
+        concepts: 'Combines the Queen’s Gambit with a kingside fianchetto, turning the g2 bishop into a long-range sniper.',
+        planWhite: 'Exert relentless pressure down the h1-a8 diagonal against Black’s queenside pawns.',
+        planBlack: 'Either hold a solid closed center (...Be7, ...O-O, ...c6) or grab on c4 and return it for activity.',
+        trap: 'Black’s queenside knights and b7 pawn are constantly pinned or targeted by the g2 bishop.',
+        stepNotes: [
+          '1. d4 Nf6 2. c4 e6 3. g3 d5 4. Bg2! Places the bishop on the long diagonal.'
+        ]
+      },
+      {
+        id: 'albin-countergambit', eco: 'D08', name: 'Albin Counter-Gambit', category: 'Queens Pawn', side: 'b',
+        moves: ['d4', 'd5', 'c4', 'e5', 'dxe5', 'd4'],
+        keySquares: ['d4', 'e5', 'c3'],
+        concepts: 'Sharp counter-gambit where Black sacrifices a pawn to drive a wedge into d4 and cramp White’s development.',
+        planWhite: 'Fianchetto the king’s bishop (g3, Bg2) to undermine Black’s d4 wedge.',
+        planBlack: 'Use the d4 pawn to restrict Nc3, castle queenside, and attack White’s king.',
+        trap: 'Lasker Trap: If White plays 4. e3? Bb4+ 5. Bd2 dxe3! 6. Bxb4?? exf2+ 7. Ke2 fxg1=N+! Black wins the Queen!',
+        stepNotes: [
+          '1. d4 d5 2. c4 e5! Strikes back immediately.',
+          '3. dxe5 d4! Establishes a cramping central wedge.'
+        ]
+      },
+
+      // INDIAN DEFENSES (1.d4 Nf6)
+      {
+        id: 'kings-indian', eco: 'E60', name: "King's Indian Defense", category: 'Indian Defenses', side: 'b',
+        moves: ['d4', 'Nf6', 'c4', 'g6', 'Nc3', 'Bg7', 'e4', 'd6', 'Nf3', 'O-O'],
+        keySquares: ['g7', 'e5', 'f5'],
+        concepts: 'Dynamic hypermodern defense: Black lets White claim a huge center, then launches an all-out kingside attack with ...f5.',
+        planWhite: 'Storm the queenside with b4, c5, and cxd6 while Black attacks on the kingside.',
+        planBlack: 'Lock the center with ...e5, shift pieces to the kingside, and push ...f5-f4 and ...g5-g4!',
+        trap: 'Once the center locks after ...e5 d5, both sides race on opposite wings — hesitation is fatal.',
+        stepNotes: [
+          '1. d4 Nf6 2. c4 g6 3. Nc3 Bg7 4. e4 d6 5. Nf3 O-O — the classic King’s Indian setup.'
+        ]
+      },
+      {
+        id: 'nimzo-indian', eco: 'E20', name: 'Nimzo-Indian Defense', category: 'Indian Defenses', side: 'b',
+        moves: ['d4', 'Nf6', 'c4', 'e6', 'Nc3', 'Bb4'],
+        keySquares: ['e4', 'b4', 'c3'],
+        concepts: 'Controls the critical e4 square using piece pressure (...Nf6 and ...Bb4) rather than occupying the center with pawns.',
+        planWhite: 'Claim the bishop pair and build a strong pawn center once Black captures on c3.',
+        planBlack: 'Double White’s c-pawns (Bxc3+), blockade c4 with ...b6 and ...Ba6, and target White’s structural weaknesses.',
+        trap: 'If White ignores the pin and plays a careless move, ...Bxc3+ bxc3 leaves White with permanent doubled c-pawns.',
+        stepNotes: [
+          '1. d4 Nf6 2. c4 e6 3. Nc3 Bb4! Pins the knight and prevents White from playing e4.'
+        ]
+      },
+      {
+        id: 'queens-indian', eco: 'E12', name: "Queen's Indian Defense", category: 'Indian Defenses', side: 'b',
+        moves: ['d4', 'Nf6', 'c4', 'e6', 'Nf3', 'b6'],
+        keySquares: ['e4', 'b7', 'g2'],
+        concepts: 'Played when White avoids the Nimzo-Indian with 3. Nf3; Black fianchettoes ...Bb7 to control e4.',
+        planWhite: 'Fianchetto g3/Bg2 to contest the long diagonal and seize central space.',
+        planBlack: 'Control e4 with ...Bb7, ...Ne4, and ...f5, creating harmonious piece coordination.',
+        trap: 'Keep an eye on White’s d5 pawn push once White’s bishop lands on g2.',
+        stepNotes: [
+          '1. d4 Nf6 2. c4 e6 3. Nf3 b6! Prepares ...Bb7 to dominate the e4 square.'
+        ]
+      },
+      {
+        id: 'grunfeld-defense', eco: 'D80', name: 'Grünfeld Defense', category: 'Indian Defenses', side: 'b',
+        moves: ['d4', 'Nf6', 'c4', 'g6', 'Nc3', 'd5', 'cxd5', 'Nxd5'],
+        keySquares: ['d4', 'g7', 'c5'],
+        concepts: 'Hypermodern counterattack: Black surrenders the center to White’s pawns and bombards d4 with ...Bg7, ...c5, and ...Nc6.',
+        planWhite: 'Keep the big e4+d4 pawn center intact and push d5 to blunt Black’s g7 bishop.',
+        planBlack: 'Hammer away at d4 with ...c5, ...Bg7, and ...Nc6 to create a powerful queenside pawn majority.',
+        trap: 'White’s giant center looks invincible until ...c5 and ...Bg7 rip it apart!',
+        stepNotes: [
+          '1. d4 Nf6 2. c4 g6 3. Nc3 d5! Strikes the center immediately before playing ...Bg7.'
+        ]
+      },
+      {
+        id: 'modern-benoni', eco: 'A60', name: 'Modern Benoni', category: 'Indian Defenses', side: 'b',
+        moves: ['d4', 'Nf6', 'c4', 'c5', 'd5', 'e6', 'Nc3', 'exd5', 'cxd5', 'd6'],
+        keySquares: ['e5', 'b5', 'g7'],
+        concepts: 'Creates a sharp pawn-majority imbalance: Black gets a 3-vs-2 queenside majority (...b5) while White gets a 4-vs-3 central majority (e4-e5).',
+        planWhite: 'Prepare e4-e5 to break through in the center before Black’s queenside rolls.',
+        planBlack: 'Fianchetto ...Bg7, prevent e5, and push ...a6 and ...b5 to create a passed queenside pawn.',
+        trap: 'Black’s d6 pawn is backward on an open file — never leave it undefended!',
+        stepNotes: [
+          '1. d4 Nf6 2. c4 c5 3. d5 e6 4. Nc3 exd5 5. cxd5 d6 establishes the signature asymmetrical Benoni structure.'
+        ]
+      },
+      {
+        id: 'budapest-gambit', eco: 'A51', name: 'Budapest Gambit', category: 'Indian Defenses', side: 'b',
+        moves: ['d4', 'Nf6', 'c4', 'e5', 'dxe5', 'Ng4'],
+        keySquares: ['e5', 'g4', 'f2'],
+        concepts: 'Tricky surprise weapon where Black sacrifices the e-pawn to activate pieces rapidly and swarm e5.',
+        planWhite: 'Return the extra pawn at a good moment to gain the bishop pair and superior structure.',
+        planBlack: 'Recapture on e5 with ...Nc6 and ...Bc5, targeting f2 with tactical fireworks.',
+        trap: 'Kieninger Trap: If White defends e5 carelessly with Bf4 and Nbd2, Black can deliver a smothered mate with ...Nd3#!',
+        stepNotes: [
+          '1. d4 Nf6 2. c4 e5! 3. dxe5 Ng4 attacks e5 immediately with active pieces.'
+        ]
+      },
+      {
+        id: 'trompowsky-attack', eco: 'A45', name: 'Trompowsky Attack', category: 'Indian Defenses', side: 'w',
+        moves: ['d4', 'Nf6', 'Bg5', 'Ne4', 'Bf4'],
+        keySquares: ['f6', 'g5', 'e4'],
+        concepts: 'Offbeat 2nd-move bishop sortie that sidesteps all Indian defenses and threatens to double Black’s f-pawns.',
+        planWhite: 'Build a solid e3-c3-Nd2 setup or launch aggressive h4-h5 kingside attacks.',
+        planBlack: 'Challenge the bishop with 2...Ne4 or 2...d5 followed by ...c5.',
+        trap: 'If Black plays 2...e6 3. e4!, White transposes into a favorable French/open center.',
+        stepNotes: [
+          '1. d4 Nf6 2. Bg5! Immediately threatens Bxf6, disrupting Black’s kingside pawn structure.'
+        ]
+      },
+      {
+        id: 'dutch-defense', eco: 'A80', name: 'Dutch Defense', category: 'Indian Defenses', side: 'b',
+        moves: ['d4', 'f5', 'g3', 'Nf6', 'Bg2', 'e6'],
+        keySquares: ['e4', 'f5', 'g2'],
+        concepts: 'Combative response to 1.d4 that fights for e4 from the kingside flank and sets up Stonewall or Leningrad attacks.',
+        planWhite: 'Fianchetto g3/Bg2 and strike at the weakened e6/e5 light squares.',
+        planBlack: 'Control e4, castle kingside, and swing the queen and rook to the kingside for an attack.',
+        trap: 'Beware of early Bg5 pins and never weaken your e8-h5 diagonal before castling (watch out for Qh5+!).',
+        stepNotes: [
+          '1. d4 f5! Clamps down on the e4 square right from move one.'
+        ]
+      },
+
+      // FLANK & HYPERMODERN OPENINGS
+      {
+        id: 'english-opening', eco: 'A10', name: 'English Opening', category: 'Flank & Hypermodern', side: 'w',
+        moves: ['c4', 'e5', 'Nc3', 'Nf6', 'g3', 'd5', 'cxd5', 'Nxd5', 'Bg2'],
+        keySquares: ['d5', 'c4', 'g2'],
+        concepts: 'Hypermodern flank opening that controls d5 from the c-file and often plays a Reversed Sicilian with an extra tempo.',
+        planWhite: 'Fianchetto Bg2, expand on the queenside with Rb1 and b4-b5, and dominate the long diagonal.',
+        planBlack: 'Play a Reversed Open Sicilian with ...e5 and ...d5, or mirror with ...c5.',
+        trap: 'White’s g2 bishop + Nc3 exert deceptive crossfire on d5 and b7.',
+        stepNotes: [
+          '1. c4! Controls d5 without committing a central pawn yet.',
+          '1... e5 2. Nc3 Nf6 3. g3 d5 4. cxd5 Nxd5 5. Bg2 sets up the classic Reversed Dragon.'
+        ]
+      },
+      {
+        id: 'reti-opening', eco: 'A04', name: 'Réti Opening', category: 'Flank & Hypermodern', side: 'w',
+        moves: ['Nf3', 'd5', 'c4', 'd4', 'b4'],
+        keySquares: ['e5', 'd4', 'c4'],
+        concepts: 'True hypermodernism: White develops knights and fianchettoes bishops first, attacking Black’s center from the flanks.',
+        planWhite: 'Undermine Black’s d5/d4 pawns with c4, b4, and Bg2.',
+        planBlack: 'Hold the center solidly with ...c6 and ...Bf5, or push ...d4 to gain space.',
+        trap: 'Trying to defend d5 with 2...c6 allows White to build a Catalan-style squeeze.',
+        stepNotes: [
+          '1. Nf3 d5 2. c4! Immediately challenges Black’s central d5 pawn from the flank.'
+        ]
+      },
+      {
+        id: 'kings-indian-attack', eco: 'A07', name: "King's Indian Attack (KIA)", category: 'Flank & Hypermodern', side: 'w',
+        moves: ['Nf3', 'd5', 'g3', 'Nf6', 'Bg2', 'c6', 'O-O', 'Bg4', 'd3', 'Nbd7', 'Nbd2', 'e5', 'e4'],
+        keySquares: ['e4', 'e5', 'g2'],
+        concepts: 'Universal attacking system for White (Nf3, g3, Bg2, O-O, d3, Nbd2, e4) that can be played against almost any setup.',
+        planWhite: 'Push e4-e5, plant a knight on f1-h2-g4, and launch a crushing kingside attack.',
+        planBlack: 'Expand on the queenside with ...b5 and ...a5 while White prepares on the kingside.',
+        trap: 'Bobby Fischer used the KIA to crush French and Sicilian setups with unstoppable e5 + Nh4-f5 attacks!',
+        stepNotes: [
+          '1. Nf3 d5 2. g3 Nf6 3. Bg2 c6 4. O-O Bg4 5. d3 Nbd7 6. Nbd2 e5 7. e4 completes the classic KIA formation.'
+        ]
+      },
+      {
+        id: 'birds-opening', eco: 'A02', name: "Bird's Opening", category: 'Flank & Hypermodern', side: 'w',
+        moves: ['f4', 'd5', 'Nf3', 'Nf6', 'e3', 'g6'],
+        keySquares: ['e5', 'f4', 'b2'],
+        concepts: 'Reversed Dutch Defense with an extra tempo: White controls e5 and fianchettoes the queen’s bishop to b2.',
+        planWhite: 'Control e5 with Nf3 and Bb2, castle kingside, and launch a rook lift via Rf3-g3.',
+        planBlack: 'Play the From’s Gambit (1...e5!) or build a solid fianchetto setup with ...d5 and ...g6.',
+        trap: 'Against 1...e5! (From’s Gambit), taking 2. fxe5 d6 gives Black rapid open lines against White’s king.',
+        stepNotes: [
+          '1. f4! Immediately stakes a claim on the e5 square.'
+        ]
+      },
+      {
+        id: 'nimzo-larsen', eco: 'A01', name: 'Nimzowitsch-Larsen Attack', category: 'Flank & Hypermodern', side: 'w',
+        moves: ['b3', 'e5', 'Bb2', 'Nc6', 'e3', 'Nf6', 'Bb5'],
+        keySquares: ['b2', 'e5', 'g7'],
+        concepts: 'Places the dark-squared bishop on the long a1-h8 diagonal on move 2 to snipe at e5 and Black’s kingside.',
+        planWhite: 'Pile pressure onto e5 with Bb2, Nf3, and Bb5, often playing f4 later.',
+        planBlack: 'Occupy the center with ...e5 and ...d5, blunting the b2 bishop with ...Bd6 or ...f6.',
+        trap: 'The b2 bishop stays hidden behind pawns until the center opens — then it strikes g7!',
+        stepNotes: [
+          '1. b3! Prepares 2. Bb2 to exert long-diagonal pressure across the board.'
+        ]
+      }
+    ];
+
+    /**
+     * ============================================================================
+     * 4. CURATED TACTICAL PUZZLES DATABASE
+     * ============================================================================
+     */
+    const TACTICAL_PUZZLES = [
+      {
+        title: 'Puzzle #1: Royal Knight Fork',
+        theme: 'Knight Fork',
+        fen: 'r2q1rk1/ppp2ppp/2n5/3np3/2B5/2N2N2/PPPP1PPP/R1BQ1RK1 w - - 0 8',
+        solution: ['Bxd5'],
+        hintFrom: 'c4', hintTo: 'd5',
+        explanation: 'White wins a clean piece! Black’s knight on d5 is only defended by the Queen on d8, while White attacks it twice (Nc3 and Bc4).'
+      },
+      {
+        title: 'Puzzle #2: Back-Rank Checkmate',
+        theme: 'Back-Rank Mate',
+        fen: '6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1',
+        solution: ['Rd8#'],
+        hintFrom: 'd1', hintTo: 'd8',
+        explanation: 'Back-Rank Mate! Black’s own pawns on f7, g7, and h7 trap the King on the 8th rank, allowing Rd8# to deliver immediate checkmate.'
+      },
+      {
+        title: 'Puzzle #3: Absolute Pin Wins the Queen',
+        theme: 'Absolute Pin',
+        fen: '4k3/4q3/8/8/8/8/4R3/4K3 w - - 0 1',
+        solution: ['Rxe7+'],
+        hintFrom: 'e2', hintTo: 'e7',
+        explanation: 'Pinned pieces cannot move if doing so exposes their King! White’s rook captures the pinned Queen with check.'
+      },
+      {
+        title: 'Puzzle #4: Greek Gift Bishop Sacrifice',
+        theme: 'King Hunt',
+        fen: 'r1bq1rk1/pppn1ppp/4p3/3pP3/1b1P4/2NB1N2/PPP2PPP/R1BQK2R w KQ - 0 7',
+        solution: ['Bxh7+'],
+        hintFrom: 'd3', hintTo: 'h7',
+        explanation: 'The classic Greek Gift sacrifice! 1. Bxh7+ Kxh7 2. Ng5+ followed by Qh5 sets up an unstoppable checkmate attack against Black’s exposed King.'
+      },
+      {
+        title: 'Puzzle #5: Tactical Skewer on the Rank',
+        theme: 'Skewer',
+        fen: '8/8/8/2k1q3/8/8/8/R3K3 w - - 0 1',
+        solution: ['Ra5+'],
+        hintFrom: 'a1', hintTo: 'a5',
+        explanation: 'A Skewer is like a reverse pin! Ra5+ checks the higher-value King on c5, forcing it to step aside so White’s rook wins the Queen on e5.'
+      },
+      {
+        title: 'Puzzle #6: Discovered Attack!',
+        theme: 'Discovered Attack',
+        fen: '3q1rk1/5ppp/8/8/3B4/8/5PPP/3R2K1 w - - 0 1',
+        solution: ['Bxg7'],
+        hintFrom: 'd4', hintTo: 'g7',
+        explanation: 'Discovered Attack! Moving the Bishop to g7 simultaneously threatens the f8 Rook and uncovers White’s d1 Rook directly attacking Black’s Queen on d8!'
+      }
+    ];
+
+    /**
+     * ============================================================================
+     * 5. MINIMAX EVALUATION ENGINE & CONCEPT ANALYZER
+     * ============================================================================
+     */
+    const PIECE_VALUES = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 20000 };
+    const PIECE_NAMES = { p: 'Pawn', n: 'Knight', b: 'Bishop', r: 'Rook', q: 'Queen', k: 'King' };
+
+    const PST = {
+      p: [
+        [  0,  0,  0,  0,  0,  0,  0,  0],
+        [ 50, 50, 50, 50, 50, 50, 50, 50],
+        [ 10, 10, 20, 30, 30, 20, 10, 10],
+        [  5,  5, 10, 27, 27, 10,  5,  5],
+        [  0,  0,  0, 24, 24,  0,  0,  0],
+        [  5, -5,-10,  0,  0,-10, -5,  5],
+        [  5, 10, 10,-22,-22, 10, 10,  5],
+        [  0,  0,  0,  0,  0,  0,  0,  0]
+      ],
+      n: [
+        [-50,-40,-30,-30,-30,-30,-40,-50],
+        [-40,-20,  0,  0,  0,  0,-20,-40],
+        [-30,  0, 10, 15, 15, 10,  0,-30],
+        [-30,  5, 15, 20, 20, 15,  5,-30],
+        [-30,  0, 15, 20, 20, 15,  0,-30],
+        [-30,  5, 10, 15, 15, 10,  5,-30],
+        [-40,-20,  0,  5,  5,  0,-20,-40],
+        [-50,-40,-30,-30,-30,-30,-40,-50]
+      ],
+      b: [
+        [-20,-10,-10,-10,-10,-10,-10,-20],
+        [-10,  0,  0,  0,  0,  0,  0,-10],
+        [-10,  0,  5, 10, 10,  5,  0,-10],
+        [-10,  5,  5, 10, 10,  5,  5,-10],
+        [-10,  0, 10, 10, 10, 10,  0,-10],
+        [-10, 10, 10, 10, 10, 10, 10,-10],
+        [-10,  5,  0,  0,  0,  0,  5,-10],
+        [-20,-10,-10,-10,-10,-10,-10,-20]
+      ],
+      r: [
+        [  0,  0,  0,  0,  0,  0,  0,  0],
+        [  5, 10, 10, 10, 10, 10, 10,  5],
+        [ -5,  0,  0,  0,  0,  0,  0, -5],
+        [ -5,  0,  0,  0,  0,  0,  0, -5],
+        [ -5,  0,  0,  0,  0,  0,  0, -5],
+        [ -5,  0,  0,  0,  0,  0,  0, -5],
+        [ -5,  0,  0,  0,  0,  0,  0, -5],
+        [  0,  0,  0,  5,  5,  0,  0,  0]
+      ],
+      q: [
+        [-20,-10,-10, -5, -5,-10,-10,-20],
+        [-10,  0,  0,  0,  0,  0,  0,-10],
+        [-10,  0,  5,  5,  5,  5,  0,-10],
+        [ -5,  0,  5,  5,  5,  5,  0, -5],
+        [  0,  0,  5,  5,  5,  5,  0, -5],
+        [-10,  5,  5,  5,  5,  5,  0,-10],
+        [-10,  0,  5,  0,  0,  0,  0,-10],
+        [-20,-10,-10, -5, -5,-10,-10,-20]
+      ],
+      k: [
+        [-30,-40,-40,-50,-50,-40,-40,-30],
+        [-30,-40,-40,-50,-50,-40,-40,-30],
+        [-30,-40,-40,-50,-50,-40,-40,-30],
+        [-30,-40,-40,-50,-50,-40,-40,-30],
+        [-20,-30,-30,-40,-40,-30,-30,-20],
+        [-10,-20,-20,-20,-20,-20,-20,-10],
+        [ 20, 20,  0,  0,  0,  0, 20, 20],
+        [ 20, 30, 10,  0,  0, 10, 30, 20]
+      ]
+    };
+
+    function evaluateBoard(chessInstance) {
+      if (chessInstance.in_checkmate()) return chessInstance.turn() === 'w' ? -99999 : 99999;
+      if (chessInstance.in_draw() || chessInstance.in_stalemate() || chessInstance.in_threefold_repetition()) return 0;
+
+      const board = chessInstance.board();
+      let totalEval = 0;
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const piece = board[r][c];
+          if (!piece) continue;
+          const baseVal = PIECE_VALUES[piece.type];
+          const pstRow = piece.color === 'w' ? r : 7 - r;
+          const posVal = PST[piece.type][pstRow][c];
+          totalEval += piece.color === 'w' ? (baseVal + posVal) : -(baseVal + posVal);
+        }
+      }
+      return totalEval;
+    }
+
+    function orderMoves(moves) {
+      return moves.sort((a, b) => {
+        let scoreA = 0, scoreB = 0;
+        if (a.captured) scoreA += 10 * PIECE_VALUES[a.captured] - PIECE_VALUES[a.piece];
+        if (b.captured) scoreB += 10 * PIECE_VALUES[b.captured] - PIECE_VALUES[b.piece];
+        if (a.promotion) scoreA += PIECE_VALUES[a.promotion];
+        if (b.promotion) scoreB += PIECE_VALUES[b.promotion];
+        if (a.san && a.san.includes('+')) scoreA += 50;
+        if (b.san && b.san.includes('+')) scoreB += 50;
+        return scoreB - scoreA;
+      });
+    }
+
+    function minimax(chessInstance, depth, alpha, beta, isMaximizing) {
+      if (depth === 0 || chessInstance.game_over()) return evaluateBoard(chessInstance);
+      const moves = orderMoves(chessInstance.moves({ verbose: true }));
+      if (isMaximizing) {
+        let maxEval = -Infinity;
+        for (let i = 0; i < moves.length; i++) {
+          chessInstance.move(moves[i]);
+          const ev = minimax(chessInstance, depth - 1, alpha, beta, false);
+          chessInstance.undo();
+          if (ev > maxEval) maxEval = ev;
+          if (ev > alpha) alpha = ev;
+          if (beta <= alpha) break;
+        }
+        return maxEval;
+      } else {
+        let minEval = Infinity;
+        for (let i = 0; i < moves.length; i++) {
+          chessInstance.move(moves[i]);
+          const ev = minimax(chessInstance, depth - 1, alpha, beta, true);
+          chessInstance.undo();
+          if (ev < minEval) minEval = ev;
+          if (ev < beta) beta = ev;
+          if (beta <= alpha) break;
+        }
+        return minEval;
+      }
+    }
+
+    function findBestMove(chessInstance, depth = 3, randomness = 0) {
+      const moves = orderMoves(chessInstance.moves({ verbose: true }));
+      if (moves.length === 0) return null;
+      const isMaximizing = chessInstance.turn() === 'w';
+      const scoredMoves = [];
+
+      for (let i = 0; i < moves.length; i++) {
+        chessInstance.move(moves[i]);
+        let score = minimax(chessInstance, depth - 1, -Infinity, Infinity, !isMaximizing);
+        chessInstance.undo();
+        if (randomness > 0) score += (Math.random() - 0.5) * randomness;
+        scoredMoves.push({ move: moves[i], score });
+      }
+      scoredMoves.sort((a, b) => isMaximizing ? b.score - a.score : a.score - b.score);
+      return { bestMove: scoredMoves[0].move, bestScore: scoredMoves[0].score, allMoves: scoredMoves };
+    }
+
+    /**
+     * Generates a 3-ply Principal Variation (best continuation line) for board walkthrough demos!
+     */
+    function computePrincipalVariation(fen, plies = 3) {
+      const sim = new Chess(fen);
+      const line = [];
+      for (let i = 0; i < plies; i++) {
+        if (sim.game_over()) break;
+        const res = findBestMove(sim, 2, 0);
+        if (!res || !res.bestMove) break;
+        const m = sim.move(res.bestMove);
+        line.push(m);
+      }
+      return line;
+    }
+
+    function isSquareAttackedBy(chessInstance, targetSquare, attackerColor) {
+      const fenParts = chessInstance.fen().split(' ');
+      fenParts[1] = attackerColor;
+      fenParts[3] = '-';
+      const tempChess = new Chess(fenParts.join(' '));
+      return tempChess.moves({ verbose: true }).some(m => m.to === targetSquare);
+    }
+
+    /**
+     * Live Opening Detector matching current move list against OPENINGS_DATABASE
+     */
+    function detectCurrentOpening(moveSanArray) {
+      if (!moveSanArray || moveSanArray.length === 0) {
+        return { id: null, eco: 'A00', name: 'Starting Position' };
+      }
+      let bestMatch = null;
+      let longestMatchLen = 0;
+
+      for (const op of OPENINGS_DATABASE) {
+        if (op.moves.length <= moveSanArray.length) {
+          let matches = true;
+          for (let i = 0; i < op.moves.length; i++) {
+            if (op.moves[i] !== moveSanArray[i]) {
+              matches = false;
+              break;
+            }
+          }
+          if (matches && op.moves.length > longestMatchLen) {
+            longestMatchLen = op.moves.length;
+            bestMatch = op;
+          }
+        }
+      }
+
+      if (bestMatch) return bestMatch;
+      if (moveSanArray[0] === 'e4') return { id: null, eco: 'B00', name: "King's Pawn Game" };
+      if (moveSanArray[0] === 'd4') return { id: null, eco: 'A40', name: "Queen's Pawn Game" };
+      if (moveSanArray[0] === 'c4') return { id: null, eco: 'A10', name: 'English Opening' };
+      if (moveSanArray[0] === 'Nf3') return { id: null, eco: 'A04', name: 'Réti Opening' };
+      return { id: null, eco: 'A00', name: 'Unorthodox Opening' };
+    }
+
+    /**
+     * Deep Tactical & Conceptual Move Analyzer ("Why is this Good/Bad?")
+     */
+    const MOVE_BADGES = {
+      brilliant: { label: '!! BRILLIANT', bg: 'bg-cyan-500/20 text-cyan-300 border-cyan-400/40' },
+      best:      { label: '★ BEST MOVE', bg: 'bg-[#81b64c]/25 text-[#9ce05a] border-[#81b64c]/50' },
+      good:      { label: '✓ GOOD MOVE', bg: 'bg-emerald-500/20 text-emerald-300 border-emerald-400/40' },
+      inaccuracy:{ label: '?! INACCURACY',bg: 'bg-amber-500/20 text-amber-300 border-amber-400/40' },
+      mistake:   { label: '? MISTAKE',   bg: 'bg-orange-500/20 text-orange-300 border-orange-400/40' },
+      blunder:   { label: '?? BLUNDER',  bg: 'bg-rose-500/25 text-rose-300 border-rose-400/50' }
+    };
+
+    function explainMoveConcept(chessBefore, moveObj, chessAfter) {
+      const pieceName = PIECE_NAMES[moveObj.piece];
+      const reasons = [];
+      let conceptTag = 'Piece Coordination';
+
+      if (chessAfter.in_checkmate()) {
+        return {
+          summary: `Delivers checkmate with ${moveObj.san}, leaving the enemy King with zero legal escapes!`,
+          conceptTag: 'Checkmate Attack',
+          deepConcept: `Every escape square around the enemy King is covered while the King is directly in check. Game over!`
+        };
+      }
+      if (chessAfter.in_check()) {
+        reasons.push(`puts the enemy King in check, forcing a tempo-losing defensive reply`);
+        conceptTag = 'Forcing Check / Tempo';
+      }
+      if (moveObj.flags.includes('k') || moveObj.flags.includes('q')) {
+        reasons.push(`castles the King into safety while activating the Rook toward the center`);
+        conceptTag = 'King Safety & Rook Activation';
+      }
+      if (moveObj.promotion) {
+        reasons.push(`promotes a passed pawn into a powerful ${PIECE_NAMES[moveObj.promotion]}`);
+        conceptTag = 'Pawn Promotion';
+      }
+      if (moveObj.captured) {
+        const capName = PIECE_NAMES[moveObj.captured];
+        const valDiff = PIECE_VALUES[moveObj.captured] - PIECE_VALUES[moveObj.piece];
+        if (valDiff > 0) {
+          reasons.push(`wins material by capturing a higher-value ${capName} with a ${pieceName}`);
+          conceptTag = 'Material Gain';
+        } else {
+          reasons.push(`captures the ${capName} on ${moveObj.to} to open lines`);
+          conceptTag = 'Tactical Exchange';
+        }
+      }
+      if (['e4', 'd4', 'e5', 'd5'].includes(moveObj.to)) {
+        reasons.push(`stakes a direct claim in the center on ${moveObj.to}`);
+        conceptTag = 'Center Control';
+      }
+      if (chessBefore.history().length < 14 && (moveObj.piece === 'n' || moveObj.piece === 'b')) {
+        const homeRanks = moveObj.color === 'w' ? ['1'] : ['8'];
+        if (homeRanks.includes(moveObj.from[1])) {
+          reasons.push(`develops the ${pieceName} off the back rank toward active central squares`);
+          conceptTag = 'Rapid Development';
+        }
+      }
+
+      // Check for fork / double attack
+      const nextTurnFen = chessAfter.fen().split(' ');
+      nextTurnFen[1] = moveObj.color;
+      nextTurnFen[3] = '-';
+      const probe = new Chess(nextTurnFen.join(' '));
+      const followUps = probe.moves({ verbose: true }).filter(m => m.from === moveObj.to && m.captured);
+      const highValueTargets = followUps.filter(m => PIECE_VALUES[m.captured] >= 320);
+      if (highValueTargets.length >= 2) {
+        const targetNames = [...new Set(highValueTargets.map(t => PIECE_NAMES[t.captured]))].join(' and ');
+        reasons.push(`creates a tactical fork threatening both the enemy ${targetNames}`);
+        conceptTag = 'Double Attack / Fork';
+      }
+
+      if (reasons.length === 0) {
+        reasons.push(`repositions the ${pieceName} to ${moveObj.to} to improve piece harmony`);
+      }
+
+      const summary = `${moveObj.san} ${reasons.slice(0, 2).join(' and ')}.`;
+      const deepConcept = `Core Principle — ${conceptTag}: In chess, controlling the center, developing minor pieces early, and keeping your King safe create tactical opportunities. ${summary}`;
+      return { summary, conceptTag, deepConcept };
+    }
+
+    function analyzeFullMove(chessBefore, moveObj, chessAfter) {
+      const fenBefore = chessBefore.fen();
+      const moverColor = moveObj.color;
+      const multiplier = moverColor === 'w' ? 1 : -1;
+
+      const bestBefore = findBestMove(chessBefore, 2, 0);
+      const bestEval = bestBefore ? bestBefore.bestScore * multiplier : evaluateBoard(chessBefore) * multiplier;
+
+      const replySearch = findBestMove(chessAfter, 2, 0);
+      const actualEval = replySearch ? replySearch.bestScore * multiplier : evaluateBoard(chessAfter) * multiplier;
+
+      const cpLoss = Math.max(0, bestEval - actualEval);
+      const conceptInfo = explainMoveConcept(chessBefore, moveObj, chessAfter);
+
+      const opponentColor = moverColor === 'w' ? 'b' : 'w';
+      const isHung = PIECE_VALUES[moveObj.piece] >= 300 &&
+                     isSquareAttackedBy(chessAfter, moveObj.to, opponentColor) &&
+                     !isSquareAttackedBy(chessAfter, moveObj.to, moverColor);
+
+      let grade = 'good';
+      let headline = '';
+      let deepWhy = '';
+      let demoLine = [];
+
+      if (chessAfter.in_checkmate()) {
+        grade = 'brilliant';
+        headline = `Checkmate! ${conceptInfo.summary}`;
+        deepWhy = conceptInfo.deepConcept;
+      } else if (cpLoss <= 25) {
+        grade = (moveObj.captured && PIECE_VALUES[moveObj.piece] > PIECE_VALUES[moveObj.captured] && actualEval > 150) ? 'brilliant' : 'best';
+        headline = `${grade === 'brilliant' ? 'Brilliant tactical move!' : 'Best move!'} ${conceptInfo.summary}`;
+        deepWhy = `Why this move is strong: It preserves or increases your advantage by ${conceptInfo.conceptTag.toLowerCase()}. ${conceptInfo.deepConcept}`;
+        demoLine = computePrincipalVariation(chessAfter.fen(), 3);
+      } else if (cpLoss <= 75) {
+        grade = 'good';
+        headline = `Solid move. ${conceptInfo.summary}`;
+        deepWhy = `Why this move is playable: ${conceptInfo.deepConcept}` + (bestBefore && bestBefore.bestMove ? ` Note: ${bestBefore.bestMove.san} was slightly more accurate.` : '');
+        demoLine = computePrincipalVariation(fenBefore, 3);
+      } else if (cpLoss <= 160) {
+        grade = 'inaccuracy';
+        const altSan = bestBefore && bestBefore.bestMove ? bestBefore.bestMove.san : '';
+        headline = `Inaccuracy. ${conceptInfo.summary} ${altSan ? `Playing ${altSan} was stronger.` : ''}`;
+        deepWhy = `Why this is an inaccuracy (loses ~${(cpLoss / 100).toFixed(1)} pawns of advantage): While ${moveObj.san} follows a reasonable idea, ${altSan} exerted much stronger pressure on key central squares. Click "Play Line on Board" to watch the optimal continuation!`;
+        demoLine = computePrincipalVariation(fenBefore, 3);
+      } else if (cpLoss <= 300) {
+        grade = 'mistake';
+        const altSan = bestBefore && bestBefore.bestMove ? bestBefore.bestMove.san : '';
+        headline = isHung
+          ? `Mistake! Your ${PIECE_NAMES[moveObj.piece]} on ${moveObj.to} is undefended. ${altSan ? `${altSan} was much better.` : ''}`
+          : `Mistake — loses initiative. ${altSan ? `${altSan} kept your position solid.` : ''}`;
+        deepWhy = `Why this is a mistake: ${isHung ? `Leaving a ${PIECE_NAMES[moveObj.piece]} unprotected on ${moveObj.to} lets your opponent win material.` : `It concedes key squares and allows tactical counterplay.`} Watching ${altSan} on the board shows how to maintain coordination.`;
+        demoLine = computePrincipalVariation(fenBefore, 3);
+      } else {
+        grade = 'blunder';
+        const altSan = bestBefore && bestBefore.bestMove ? bestBefore.bestMove.san : '';
+        headline = isHung
+          ? `Blunder! You left your ${PIECE_NAMES[moveObj.piece]} hanging on ${moveObj.to}! ${altSan ? `Play ${altSan} instead.` : ''}`
+          : `Blunder! This allows a decisive tactical blow. ${altSan ? `${altSan} defended everything.` : ''}`;
+        deepWhy = `Why this is a blunder (drops ~${(cpLoss / 100).toFixed(1)} pawns): ${isHung ? `Your ${PIECE_NAMES[moveObj.piece]} on ${moveObj.to} can be captured immediately for free.` : `Your opponent now has a forcing tactical sequence.`} Click "Show Concept on Board" to see how the engine punishes this or what you should have played!`;
+        demoLine = computePrincipalVariation(fenBefore, 3);
+      }
+
+      return {
+        ply: chessAfter.history().length,
+        san: moveObj.san,
+        color: moverColor,
+        from: moveObj.from,
+        to: moveObj.to,
+        fenBefore,
+        fenAfter: chessAfter.fen(),
+        grade,
+        headline,
+        deepWhy,
+        conceptTag: conceptInfo.conceptTag,
+        evalCp: actualEval * multiplier,
+        bestMove: bestBefore ? bestBefore.bestMove : null,
+        demoLine
+      };
+    }
+
+    /**
+     * ============================================================================
+     * 6. MAIN TAB NAVIGATION & GLOBAL THEME
+     * ============================================================================
+     */
+    let activeMainTab = 'play';
+
+    function switchMainTab(tabName) {
+      activeMainTab = tabName;
+      stopAutoWalkthrough();
+      exitDemoLine(true);
+
+      ['play', 'openings', 'puzzles'].forEach(t => {
+        const viewEl = document.getElementById(`view-${t}`);
+        const navBtn = document.getElementById(`nav-tab-${t}`);
+        if (t === tabName) {
+          viewEl.classList.remove('hidden');
+          navBtn.className = 'flex-1 sm:flex-initial px-3.5 py-1.5 rounded-lg text-xs font-bold bg-[#81b64c] text-white shadow transition flex items-center justify-center gap-1.5';
+        } else {
+          viewEl.classList.add('hidden');
+          navBtn.className = 'flex-1 sm:flex-initial px-3.5 py-1.5 rounded-lg text-xs font-bold text-neutral-300 hover:text-white transition flex items-center justify-center gap-1.5';
+        }
+      });
+
+      if (tabName === 'openings') {
+        renderOpeningsCatalog();
+        renderOpeningBoard();
+      } else if (tabName === 'puzzles') {
+        loadPuzzle(currentPuzzleIndex);
+      } else {
+        renderBoard();
+      }
+    }
+
+    function setBoardTheme(theme) {
+      ['board-theme-wrapper', 'opening-board-wrapper', 'puzzle-board-wrapper'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.classList.remove('theme-green', 'theme-slate', 'theme-wood');
+          el.classList.add(`theme-${theme}`);
+        }
+      });
+
+      ['green', 'slate', 'wood'].forEach(t => {
+        const btn = document.getElementById(`btn-theme-${t}`);
+        if (t === theme) {
+          btn.classList.add('ring-2', 'ring-white');
+          btn.classList.remove('opacity-70');
+        } else {
+          btn.classList.remove('ring-2', 'ring-white');
+          btn.classList.add('opacity-70');
+        }
+      });
+    }
+
+    function flipCurrentBoard() {
+      if (activeMainTab === 'play') {
+        boardFlipped = !boardFlipped;
+        updatePlayerHeaders();
+        renderBoard();
+      } else if (activeMainTab === 'openings') {
+        openingBoardFlipped = !openingBoardFlipped;
+        renderOpeningBoard();
+      } else if (activeMainTab === 'puzzles') {
+        puzzleBoardFlipped = !puzzleBoardFlipped;
+        renderPuzzleBoard();
+      }
+    }
+
+    /**
+     * ============================================================================
+     * 7. PLAY VS AI + POST-GAME INTERACTIVE CONCEPT WALKTHROUGH CONTROLLER
+     * ============================================================================
+     */
+    const BOT_CONFIGS = {
+      '400':  { name: 'MartinBot (Beginner)', rating: 400,  depth: 1, randomness: 260, avatar: '🌱' },
+      '800':  { name: 'EmirBot (Casual)',     rating: 800,  depth: 2, randomness: 130, avatar: '🙂' },
+      '1200': { name: 'CoachBot (Club)',      rating: 1200, depth: 2, randomness: 35,  avatar: '🤖' },
+      '1600': { name: 'MagnusLite (Master)',  rating: 1600, depth: 3, randomness: 0,   avatar: '🔥' }
+    };
+
+    let game = new Chess();
+    let playerColor = 'w';
+    let boardFlipped = false;
+    let selectedSquare = null;
+    let legalTargets = [];
+    let lastMove = null;
+    let pendingPromotion = null;
+    let isBotThinking = false;
+
+    // Full history records for post-game walkthrough & concept playback
+    let fullMoveHistory = []; // Array of analysis objects per half-move (ply 1..N)
+    let viewedPly = 0;        // Currently displayed ply on the board (0 = start, N = latest)
+    let autoWalkTimer = null;
+    let demoLineTimer = null;
+    let isDemoActive = false;
+    let detectedOpeningObj = null;
+
+    function startNewGame(startingMoves = null) {
+      stopAutoWalkthrough();
+      exitDemoLine(true);
+
+      game = new Chess();
+      playerColor = document.getElementById('player-side-select').value;
+      boardFlipped = (playerColor === 'b');
+      selectedSquare = null;
+      legalTargets = [];
+      lastMove = null;
+      pendingPromotion = null;
+      isBotThinking = false;
+      fullMoveHistory = [];
+      viewedPly = 0;
+
+      closeGameOverModal();
+      clearSvgArrows('arrow-overlay');
+      document.getElementById('deep-explanation-box').classList.add('hidden');
+
+      // Optional: Start from a chosen Opening line!
+      if (startingMoves && Array.isArray(startingMoves)) {
+        for (const san of startingMoves) {
+          const before = new Chess(game.fen());
+          const m = game.move(san);
+          if (m) {
+            lastMove = m;
+            const record = analyzeFullMove(before, m, game);
+            fullMoveHistory.push(record);
+          }
+        }
+        viewedPly = fullMoveHistory.length;
+      }
+
+      updatePlayerHeaders();
+      updateLiveOpeningBanner();
+      updateEvaluationBar(evaluateBoard(game));
+      renderBoard();
+      renderMoveHistory();
+
+      if (fullMoveHistory.length > 0) {
+        const lastRec = fullMoveHistory[fullMoveHistory.length - 1];
+        displayMoveRecordInCoach(lastRec);
+      } else {
+        setCoachUI(
+          'best',
+          playerColor === 'w'
+            ? "You're playing White! Open with e4 or d4 to claim the center and develop your pieces."
+            : "You're playing Black! Watch the bot's opening move and respond by fighting for the center.",
+          null,
+          0
+        );
+      }
+
+      // If it's the Bot's turn right now, trigger AI move
+      if (!game.game_over() && game.turn() !== playerColor) {
+        triggerBotTurn();
+      }
+    }
+
+    function onBotSettingsChanged() {
+      updatePlayerHeaders();
+    }
+
+    function getBotConfig() {
+      const level = document.getElementById('bot-level-select').value;
+      return BOT_CONFIGS[level] || BOT_CONFIGS['1200'];
+    }
+
+    function updatePlayerHeaders() {
+      const bot = getBotConfig();
+      const topIsBot = !boardFlipped ? (playerColor === 'w') : (playerColor === 'b');
+
+      const topName = document.getElementById('top-name');
+      const topRating = document.getElementById('top-rating-badge');
+      const topAvatar = document.getElementById('top-avatar');
+      const botName = document.getElementById('bottom-name');
+      const botTag = document.getElementById('bottom-color-tag');
+      const botAvatar = document.getElementById('bottom-avatar');
+
+      if (topIsBot) {
+        topName.textContent = bot.name;
+        topRating.textContent = bot.rating;
+        topAvatar.textContent = bot.avatar;
+        botName.textContent = 'You';
+        botTag.textContent = playerColor === 'w' ? 'White' : 'Black';
+        botAvatar.textContent = '♟️';
+      } else {
+        topName.textContent = 'You';
+        topRating.textContent = playerColor === 'w' ? 'White' : 'Black';
+        topAvatar.textContent = '♟️';
+        botName.textContent = bot.name;
+        botTag.textContent = bot.rating;
+        botAvatar.textContent = bot.avatar;
+      }
+
+      const evalBar = document.getElementById('eval-bar');
+      if (boardFlipped) evalBar.classList.add('flipped');
+      else evalBar.classList.remove('flipped');
+    }
+
+    function updateLiveOpeningBanner() {
+      const sanList = fullMoveHistory.slice(0, viewedPly).map(r => r.san);
+      const detected = detectCurrentOpening(sanList);
+      detectedOpeningObj = detected;
+      document.getElementById('live-eco-badge').textContent = detected.eco;
+      document.getElementById('live-opening-name').textContent = detected.name;
+      const studyBtn = document.getElementById('learn-detected-opening-btn');
+      if (detected.id) studyBtn.classList.remove('hidden');
+      else studyBtn.classList.add('hidden');
+    }
+
+    function openDetectedOpeningInExplorer() {
+      if (!detectedOpeningObj || !detectedOpeningObj.id) return;
+      switchMainTab('openings');
+      selectOpeningById(detectedOpeningObj.id);
+    }
+
+    /**
+     * Renders any Chess instance onto a target board DOM element
+     */
+    function renderGenericBoard(boardElId, chessInst, flipped, highlightMove, selSq, legalList, keySquaresList = [], onSqClick = null) {
+      const boardEl = document.getElementById(boardElId);
+      boardEl.innerHTML = '';
+
+      const boardState = chessInst.board();
+      const inCheck = chessInst.in_check();
+      const currentTurn = chessInst.turn();
+
+      let kingInCheckSq = null;
+      if (inCheck) {
+        for (let r = 0; r < 8; r++) {
+          for (let c = 0; c < 8; c++) {
+            const p = boardState[r][c];
+            if (p && p.type === 'k' && p.color === currentTurn) {
+              kingInCheckSq = String.fromCharCode(97 + c) + (8 - r);
+            }
+          }
+        }
+      }
+
+      const files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+
+      for (let displayRow = 0; displayRow < 8; displayRow++) {
+        for (let displayCol = 0; displayCol < 8; displayCol++) {
+          const r = flipped ? 7 - displayRow : displayRow;
+          const c = flipped ? 7 - displayCol : displayCol;
+          const squareName = files[c] + (8 - r);
+          const isLight = (r + c) % 2 === 0;
+
+          const sqDiv = document.createElement('div');
+          sqDiv.className = `square ${isLight ? 'light' : 'dark'}`;
+
+          if (highlightMove && (highlightMove.from === squareName || highlightMove.to === squareName)) {
+            sqDiv.classList.add('last-move');
+          }
+          if (selSq === squareName) {
+            sqDiv.classList.add('selected');
+          }
+          if (keySquaresList && keySquaresList.includes(squareName)) {
+            sqDiv.classList.add('key-square');
+          }
+          if (kingInCheckSq === squareName) {
+            sqDiv.classList.add('in-check');
+          }
+
+          if (displayCol === 0) {
+            const rankSpan = document.createElement('span');
+            rankSpan.className = 'coord-rank';
+            rankSpan.textContent = 8 - r;
+            sqDiv.appendChild(rankSpan);
+          }
+          if (displayRow === 7) {
+            const fileSpan = document.createElement('span');
+            fileSpan.className = 'coord-file';
+            fileSpan.textContent = files[c];
+            sqDiv.appendChild(fileSpan);
+          }
+
+          const piece = boardState[r][c];
+          if (piece) {
+            const key = piece.color + piece.type.toUpperCase();
+            sqDiv.insertAdjacentHTML('beforeend', PIECE_SVGS[key]);
+          }
+
+          const targetMove = legalList ? legalList.find(m => m.to === squareName) : null;
+          if (targetMove) {
+            const indicator = document.createElement('div');
+            indicator.className = (piece || targetMove.flags.includes('e')) ? 'legal-capture' : 'legal-dot';
+            sqDiv.appendChild(indicator);
+          }
+
+          if (onSqClick) {
+            sqDiv.addEventListener('click', () => onSqClick(squareName));
+          }
+          boardEl.appendChild(sqDiv);
+        }
+      }
+    }
+
+    function renderBoard(overrideChess = null, overrideLastMove = null) {
+      const displayChess = overrideChess || getChessAtPly(viewedPly);
+      const displayMove = overrideLastMove || (viewedPly > 0 ? fullMoveHistory[viewedPly - 1] : null);
+      const isLiveHead = !overrideChess && !isDemoActive && (viewedPly === fullMoveHistory.length);
+
+      renderGenericBoard(
+        'chessboard',
+        displayChess,
+        boardFlipped,
+        displayMove,
+        isLiveHead ? selectedSquare : null,
+        isLiveHead ? legalTargets : [],
+        [],
+        handleSquareClick
+      );
+
+      updateCapturedPieces(displayChess);
+      updateGamePhaseBadge();
+    }
+
+    function getChessAtPly(ply) {
+      if (ply <= 0 || fullMoveHistory.length === 0) return new Chess();
+      if (ply >= fullMoveHistory.length) return game;
+      return new Chess(fullMoveHistory[ply - 1].fenAfter);
+    }
+
+    function handleSquareClick(squareName) {
+      if (isDemoActive) {
+        exitDemoLine();
+        return;
+      }
+      // If user is reviewing an earlier ply, snap back to live position first
+      if (viewedPly !== fullMoveHistory.length) {
+        jumpToPly(fullMoveHistory.length);
+        return;
+      }
+      if (isBotThinking || game.game_over() || game.turn() !== playerColor) return;
+
+      const clickedPiece = game.get(squareName);
+
+      if (selectedSquare) {
+        const matchingMoves = legalTargets.filter(m => m.to === squareName);
+        if (matchingMoves.length > 0) {
+          if (matchingMoves[0].promotion) {
+            showPromotionModal(selectedSquare, squareName);
+            return;
+          }
+          executeHumanMove(selectedSquare, squareName);
+          return;
+        }
+      }
+
+      if (clickedPiece && clickedPiece.color === playerColor) {
+        if (selectedSquare === squareName) {
+          selectedSquare = null;
+          legalTargets = [];
+        } else {
+          selectedSquare = squareName;
+          legalTargets = game.moves({ square: squareName, verbose: true });
+        }
+        renderBoard();
+      } else {
+        selectedSquare = null;
+        legalTargets = [];
+        renderBoard();
+      }
+    }
+
+    function showPromotionModal(fromSq, toSq) {
+      pendingPromotion = { from: fromSq, to: toSq };
+      const modal = document.getElementById('promotion-modal');
+      const container = document.getElementById('promotion-choices');
+      container.innerHTML = '';
+
+      ['q', 'r', 'b', 'n'].forEach(type => {
+        const btn = document.createElement('button');
+        btn.className = 'w-14 h-14 rounded-xl bg-[#35332f] hover:bg-[#81b64c] border border-[#4c4943] flex items-center justify-center transition shadow-md';
+        btn.innerHTML = PIECE_SVGS[playerColor + type.toUpperCase()];
+        btn.onclick = () => {
+          modal.classList.add('hidden');
+          const { from, to } = pendingPromotion;
+          pendingPromotion = null;
+          executeHumanMove(from, to, type);
+        };
+        container.appendChild(btn);
+      });
+      modal.classList.remove('hidden');
+    }
+
+    function executeHumanMove(from, to, promotion = 'q') {
+      clearSvgArrows('arrow-overlay');
+      const chessBefore = new Chess(game.fen());
+      const moveObj = game.move({ from, to, promotion });
+      if (!moveObj) return;
+
+      selectedSquare = null;
+      legalTargets = [];
+      lastMove = moveObj;
+      playMoveAudio(moveObj);
+
+      const record = analyzeFullMove(chessBefore, moveObj, game);
+      fullMoveHistory.push(record);
+      viewedPly = fullMoveHistory.length;
+
+      updateLiveOpeningBanner();
+      updateEvaluationBar(record.evalCp);
+      displayMoveRecordInCoach(record);
+
+      renderBoard();
+      renderMoveHistory();
+
+      if (checkGameOver()) return;
+      triggerBotTurn();
+    }
+
+    function triggerBotTurn() {
+      isBotThinking = true;
+      document.getElementById('ai-thinking-badge').classList.remove('hidden');
+
+      setTimeout(() => {
+        const bot = getBotConfig();
+        const chessBeforeBot = new Chess(game.fen());
+        const result = findBestMove(game, bot.depth, bot.randomness);
+
+        if (result && result.bestMove) {
+          const botMove = game.move(result.bestMove);
+          lastMove = botMove;
+          playMoveAudio(botMove);
+
+          const botRecord = analyzeFullMove(chessBeforeBot, botMove, game);
+          fullMoveHistory.push(botRecord);
+          viewedPly = fullMoveHistory.length;
+
+          updateLiveOpeningBanner();
+          updateEvaluationBar(botRecord.evalCp);
+
+          // Keep the user's last move grade visible while explaining the Bot's reply plan!
+          const userLastRec = fullMoveHistory.length >= 2 ? fullMoveHistory[fullMoveHistory.length - 2] : null;
+          if (userLastRec && userLastRec.color === playerColor) {
+            setCoachUI(userLastRec.grade, userLastRec.headline, botRecord.headline, botRecord.evalCp);
+          } else {
+            displayMoveRecordInCoach(botRecord);
+          }
+        }
+
+        isBotThinking = false;
+        document.getElementById('ai-thinking-badge').classList.add('hidden');
+        renderBoard();
+        renderMoveHistory();
+        checkGameOver();
+      }, 340);
+    }
+
+    function displayMoveRecordInCoach(rec) {
+      if (!rec) return;
+      clearSvgArrows('arrow-overlay');
+      setCoachUI(rec.grade, rec.headline, null, rec.evalCp);
+
+      // Populate Deep Explanation Drawer
+      document.getElementById('concept-tag-pill').textContent = rec.conceptTag;
+      document.getElementById('deep-concept-body').textContent = rec.deepWhy;
+
+      const altBox = document.getElementById('deep-alternative-box');
+      const altText = document.getElementById('deep-alternative-text');
+      if (rec.bestMove && rec.bestMove.san !== rec.san) {
+        altText.innerHTML = `Engine prefers <strong class="text-[#81b64c] font-mono">${rec.bestMove.san}</strong> (${rec.bestMove.from}→${rec.bestMove.to})`;
+        altBox.classList.remove('hidden');
+        drawSvgArrow('arrow-overlay', rec.bestMove.from, rec.bestMove.to, '#81b64c', boardFlipped);
+      } else {
+        altBox.classList.add('hidden');
+        drawSvgArrow('arrow-overlay', rec.from, rec.to, '#38bdf8', boardFlipped);
+      }
+    }
+
+    function toggleDeepExplanation() {
+      const box = document.getElementById('deep-explanation-box');
+      if (fullMoveHistory.length === 0) {
+        box.classList.remove('hidden');
+        document.getElementById('concept-tag-pill').textContent = 'Opening Strategy';
+        document.getElementById('deep-concept-body').textContent =
+          'Play your first move (like 1.e4 or 1.d4) to control the center! Once a move is played, clicking this button breaks down its tactical purpose, pawn structure impact, and engine alternatives.';
+        return;
+      }
+      box.classList.toggle('hidden');
+      if (!box.classList.contains('hidden') && viewedPly > 0) {
+        displayMoveRecordInCoach(fullMoveHistory[viewedPly - 1]);
+      }
+    }
+
+    /**
+     * ============================================================================
+     * 8. POST-GAME WALKTHROUGH & ANIMATED BOARD CONCEPT DEMONSTRATION
+     * ============================================================================
+     */
+    function jumpToPly(ply) {
+      stopAutoWalkthrough();
+      exitDemoLine(true);
+      viewedPly = Math.max(0, Math.min(fullMoveHistory.length, ply));
+      clearSvgArrows('arrow-overlay');
+
+      if (viewedPly === 0) {
+        updateEvaluationBar(0);
+        setCoachUI('best', 'Starting position. Step forward with > to review each move!', null, 0);
+      } else {
+        const rec = fullMoveHistory[viewedPly - 1];
+        updateEvaluationBar(rec.evalCp);
+        displayMoveRecordInCoach(rec);
+      }
+
+      updateLiveOpeningBanner();
+      renderBoard();
+      renderMoveHistory();
+    }
+
+    function stepReviewPly(delta) {
+      jumpToPly(viewedPly + delta);
+    }
+
+    function startPostGameWalkthrough() {
+      closeGameOverModal();
+      jumpToPly(0);
+      toggleAutoWalkthrough();
+    }
+
+    function toggleAutoWalkthrough() {
+      if (autoWalkTimer) {
+        stopAutoWalkthrough();
+        return;
+      }
+      if (fullMoveHistory.length === 0) return;
+      if (viewedPly >= fullMoveHistory.length) viewedPly = 0;
+
+      document.getElementById('auto-walk-icon').textContent = '⏸';
+      document.getElementById('auto-walk-label').textContent = 'Pause';
+
+      autoWalkTimer = setInterval(() => {
+        if (viewedPly >= fullMoveHistory.length) {
+          stopAutoWalkthrough();
+          return;
+        }
+        viewedPly++;
+        const rec = fullMoveHistory[viewedPly - 1];
+        playMoveAudio(rec);
+        updateEvaluationBar(rec.evalCp);
+        displayMoveRecordInCoach(rec);
+        updateLiveOpeningBanner();
+        renderBoard();
+        renderMoveHistory();
+      }, 1500);
+    }
+
+    function stopAutoWalkthrough() {
+      if (autoWalkTimer) {
+        clearInterval(autoWalkTimer);
+        autoWalkTimer = null;
+      }
+      document.getElementById('auto-walk-icon').textContent = '▶';
+      document.getElementById('auto-walk-label').textContent = 'Walkthrough';
+    }
+
+    /**
+     * Physically animates the Coach's recommended variation / tactical idea on the chessboard!
+     */
+    function demonstrateConceptOnBoard() {
+      if (fullMoveHistory.length === 0) return;
+      stopAutoWalkthrough();
+      exitDemoLine(true);
+
+      const targetPly = viewedPly > 0 ? viewedPly : fullMoveHistory.length;
+      const rec = fullMoveHistory[targetPly - 1];
+      if (!rec) return;
+
+      // Determine starting FEN and line to animate
+      const startFen = (rec.bestMove && rec.bestMove.san !== rec.san) ? rec.fenBefore : rec.fenAfter;
+      const lineToPlay = (rec.demoLine && rec.demoLine.length > 0)
+        ? rec.demoLine
+        : computePrincipalVariation(startFen, 3);
+
+      if (lineToPlay.length === 0) return;
+
+      isDemoActive = true;
+      const banner = document.getElementById('demo-mode-banner');
+      const label = document.getElementById('demo-banner-label');
+      banner.classList.remove('hidden');
+      label.textContent = (rec.bestMove && rec.bestMove.san !== rec.san)
+        ? `Coach Demo: Better Line (${lineToPlay.map(m => m.san).join(' ')})`
+        : `Coach Demo: Follow-Up Idea (${lineToPlay.map(m => m.san).join(' ')})`;
+
+      // Open the explanation drawer so user can read along as pieces move
+      document.getElementById('deep-explanation-box').classList.remove('hidden');
+
+      const simChess = new Chess(startFen);
+      renderBoard(simChess, null);
+      clearSvgArrows('arrow-overlay');
+      drawSvgArrow('arrow-overlay', lineToPlay[0].from, lineToPlay[0].to, '#38bdf8', boardFlipped);
+
+      let stepIdx = 0;
+      demoLineTimer = setInterval(() => {
+        if (stepIdx >= lineToPlay.length) {
+          clearInterval(demoLineTimer);
+          demoLineTimer = null;
+          label.textContent = 'Demo Complete — Click "Exit Demo" to return';
+          return;
+        }
+        const m = lineToPlay[stepIdx];
+        const beforeStep = new Chess(simChess.fen());
+        simChess.move(m);
+        playMoveAudio(m);
+
+        const stepInfo = explainMoveConcept(beforeStep, m, simChess);
+        document.getElementById('deep-concept-body').textContent = `Demo Step ${stepIdx + 1}: ${stepInfo.summary}`;
+
+        clearSvgArrows('arrow-overlay');
+        drawSvgArrow('arrow-overlay', m.from, m.to, '#38bdf8', boardFlipped);
+        renderBoard(simChess, m);
+        stepIdx++;
+      }, 1150);
+    }
+
+    function exitDemoLine(silent = false) {
+      if (demoLineTimer) {
+        clearInterval(demoLineTimer);
+        demoLineTimer = null;
+      }
+      isDemoActive = false;
+      const banner = document.getElementById('demo-mode-banner');
+      if (banner) banner.classList.add('hidden');
+      if (!silent) {
+        clearSvgArrows('arrow-overlay');
+        renderBoard();
+      }
+    }
+
+    function requestCoachHint() {
+      if (isBotThinking || game.game_over() || game.turn() !== playerColor) return;
+      if (viewedPly !== fullMoveHistory.length) jumpToPly(fullMoveHistory.length);
+
+      clearSvgArrows('arrow-overlay');
+      const search = findBestMove(game, 3, 0);
+      if (!search || !search.bestMove) return;
+
+      const best = search.bestMove;
+      const previewGame = new Chess(game.fen());
+      previewGame.move(best);
+      const conceptInfo = explainMoveConcept(game, best, previewGame);
+
+      drawSvgArrow('arrow-overlay', best.from, best.to, '#f59e0b', boardFlipped);
+      setCoachUI('best', `Coach Hint: Play ${best.san} (${best.from} → ${best.to}). ${conceptInfo.summary}`, null, search.bestScore);
+      document.getElementById('deep-explanation-box').classList.remove('hidden');
+      document.getElementById('concept-tag-pill').textContent = conceptInfo.conceptTag;
+      document.getElementById('deep-concept-body').textContent = conceptInfo.deepConcept;
+      sfx.move();
+    }
+
+    function undoLastTurn() {
+      if (isBotThinking || fullMoveHistory.length === 0) return;
+      stopAutoWalkthrough();
+      exitDemoLine(true);
+      clearSvgArrows('arrow-overlay');
+      closeGameOverModal();
+
+      if (game.turn() === playerColor && fullMoveHistory.length >= 2) {
+        game.undo();
+        game.undo();
+        fullMoveHistory.pop();
+        fullMoveHistory.pop();
+      } else {
+        game.undo();
+        fullMoveHistory.pop();
+      }
+
+      viewedPly = fullMoveHistory.length;
+      lastMove = viewedPly > 0 ? fullMoveHistory[viewedPly - 1] : null;
+      selectedSquare = null;
+      legalTargets = [];
+
+      const currentEval = evaluateBoard(game);
+      updateEvaluationBar(currentEval);
+      updateLiveOpeningBanner();
+      setCoachUI('good', 'Move taken back! Try a different idea.', null, currentEval);
+      renderBoard();
+      renderMoveHistory();
+    }
+
+    /**
+     * ============================================================================
+     * 9. COACH UI, EVAL BAR, MOVE HISTORY & GAME SUMMARY HELPERS
+     * ============================================================================
+     */
+    function setCoachUI(grade, mainText, botPlanText, evalCp) {
+      const badgeEl = document.getElementById('coach-classification');
+      const cfg = MOVE_BADGES[grade] || MOVE_BADGES.good;
+      badgeEl.className = `inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold border badge-pop ${cfg.bg}`;
+      badgeEl.innerHTML = `<span>${cfg.label}</span>`;
+
+      document.getElementById('coach-main-text').textContent = mainText;
+
+      const subBox = document.getElementById('coach-sub-box');
+      const subText = document.getElementById('coach-sub-text');
+      if (botPlanText) {
+        subText.textContent = botPlanText;
+        subBox.classList.remove('hidden');
+      } else {
+        subBox.classList.add('hidden');
+      }
+
+      document.getElementById('coach-eval-pill').textContent = `Eval: ${formatEvalScore(evalCp)}`;
+    }
+
+    function formatEvalScore(cp) {
+      if (cp > 90000) return '+M';
+      if (cp < -90000) return '-M';
+      const pawns = (cp / 100).toFixed(1);
+      return cp > 0 ? `+${pawns}` : `${pawns}`;
+    }
+
+    function updateEvaluationBar(cp) {
+      const clamped = Math.max(-1000, Math.min(1000, cp));
+      const whitePct = 50 + 45 * (2 / (1 + Math.exp(-0.004 * clamped)) - 1);
+      document.getElementById('eval-fill').style.height = `${whitePct.toFixed(1)}%`;
+
+      const scoreText = formatEvalScore(Math.abs(cp));
+      const topText = document.getElementById('eval-top-text');
+      const bottomText = document.getElementById('eval-bottom-text');
+
+      if (!boardFlipped) {
+        if (cp >= 0) {
+          topText.textContent = '';
+          bottomText.textContent = scoreText;
+          bottomText.className = 'text-[10px] font-mono font-bold text-neutral-900 z-10 leading-none';
+        } else {
+          topText.textContent = scoreText;
+          topText.className = 'text-[10px] font-mono font-bold text-neutral-200 z-10 leading-none';
+          bottomText.textContent = '';
+        }
+      } else {
+        if (cp < 0) {
+          topText.textContent = '';
+          bottomText.textContent = scoreText;
+          bottomText.className = 'text-[10px] font-mono font-bold text-neutral-200 z-10 leading-none';
+        } else {
+          topText.textContent = scoreText;
+          topText.className = 'text-[10px] font-mono font-bold text-neutral-900 z-10 leading-none';
+          bottomText.textContent = '';
+        }
+      }
+    }
+
+    function drawSvgArrow(svgId, fromSq, toSq, color = '#81b64c', flipped = false) {
+      const svg = document.getElementById(svgId);
+      const files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+      function sqToCenter(sq) {
+        let col = files.indexOf(sq[0]);
+        let row = 8 - parseInt(sq[1], 10);
+        if (flipped) { col = 7 - col; row = 7 - row; }
+        return { x: col * 100 + 50, y: row * 100 + 50 };
+      }
+      const start = sqToCenter(fromSq);
+      const end = sqToCenter(toSq);
+      const dx = end.x - start.x, dy = end.y - start.y;
+      const angle = Math.atan2(dy, dx);
+      const length = Math.hypot(dx, dy);
+      const tipX = start.x + Math.cos(angle) * (length - 18);
+      const tipY = start.y + Math.sin(angle) * (length - 18);
+      const markerId = `ah-${svgId}-${color.replace('#', '')}`;
+
+      svg.innerHTML += `
+        <defs>
+          <marker id="${markerId}" markerWidth="4" markerHeight="4" refX="2.2" refY="2" orient="auto">
+            <polygon points="0 0, 4 2, 0 4" fill="${color}" />
+          </marker>
+        </defs>
+        <line x1="${start.x}" y1="${start.y}" x2="${tipX}" y2="${tipY}"
+              stroke="${color}" stroke-width="15" stroke-linecap="round"
+              opacity="0.85" marker-end="url(#${markerId})" />
+      `;
+    }
+
+    function clearSvgArrows(svgId) {
+      const el = document.getElementById(svgId);
+      if (el) el.innerHTML = '';
+    }
+
+    function renderMoveHistory() {
+      const listEl = document.getElementById('move-history-list');
+      document.getElementById('move-count-label').textContent = `${fullMoveHistory.length} ${fullMoveHistory.length === 1 ? 'Move' : 'Moves'}`;
+
+      if (fullMoveHistory.length === 0) {
+        listEl.innerHTML = `<div class="p-6 text-center text-neutral-500 font-sans text-xs">No moves played yet. Click a piece to begin!</div>`;
+        return;
+      }
+
+      const gradeColors = {
+        brilliant: 'text-cyan-400', best: 'text-[#81b64c]', good: 'text-emerald-400',
+        inaccuracy: 'text-amber-400', mistake: 'text-orange-400', blunder: 'text-rose-400'
+      };
+      const gradeSymbols = { brilliant: '!!', best: '★', good: '', inaccuracy: '?!', mistake: '?', blunder: '??' };
+
+      let html = '';
+      for (let i = 0; i < fullMoveHistory.length; i += 2) {
+        const moveNum = Math.floor(i / 2) + 1;
+        const wRec = fullMoveHistory[i];
+        const bRec = fullMoveHistory[i + 1];
+
+        const wActive = viewedPly === (i + 1) ? 'bg-[#81b64c]/25 text-white rounded px-1.5 py-0.5' : 'px-1.5 py-0.5 rounded hover:bg-[#34312d]';
+        const bActive = bRec && viewedPly === (i + 2) ? 'bg-[#81b64c]/25 text-white rounded px-1.5 py-0.5' : 'px-1.5 py-0.5 rounded hover:bg-[#34312d]';
+
+        const wBadge = wRec.grade && gradeSymbols[wRec.grade] ? `<span class="ml-1 font-extrabold ${gradeColors[wRec.grade]}">${gradeSymbols[wRec.grade]}</span>` : '';
+        const bBadge = bRec && bRec.grade && gradeSymbols[bRec.grade] ? `<span class="ml-1 font-extrabold ${gradeColors[bRec.grade]}">${gradeSymbols[bRec.grade]}</span>` : '';
+
+        html += `
+          <div class="grid grid-cols-12 px-3 py-1.5 items-center">
+            <span class="col-span-2 text-neutral-500 font-bold">${moveNum}.</span>
+            <button onclick="jumpToPly(${i + 1})" class="col-span-5 text-left text-neutral-100 font-semibold ${wActive}">${wRec.san}${wBadge}</button>
+            ${bRec ? `<button onclick="jumpToPly(${i + 2})" class="col-span-5 text-left text-neutral-200 font-semibold ${bActive}">${bRec.san}${bBadge}</button>` : '<span class="col-span-5"></span>'}
+          </div>
+        `;
+      }
+      listEl.innerHTML = html;
+      listEl.scrollTop = listEl.scrollHeight;
+    }
+
+    function updateCapturedPieces(chessInst) {
+      const initialCounts = { p: 8, n: 2, b: 2, r: 2, q: 1 };
+      const currentCounts = { w: { p: 0, n: 0, b: 0, r: 0, q: 0 }, b: { p: 0, n: 0, b: 0, r: 0, q: 0 } };
+      const board = chessInst.board();
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const p = board[r][c];
+          if (p && p.type !== 'k') currentCounts[p.color][p.type]++;
+        }
+      }
+
+      const unicodeIcons = {
+        w: { p: '♙', n: '♘', b: '♗', r: '♖', q: '♕' },
+        b: { p: '♟', n: '♞', b: '♝', r: '♜', q: '♛' }
+      };
+
+      let whiteCapturedStr = '', blackCapturedStr = '', whiteMat = 0, blackMat = 0;
+      ['q', 'r', 'b', 'n', 'p'].forEach(type => {
+        whiteMat += currentCounts.w[type] * (PIECE_VALUES[type] / 100);
+        blackMat += currentCounts.b[type] * (PIECE_VALUES[type] / 100);
+        whiteCapturedStr += unicodeIcons.b[type].repeat(Math.max(0, initialCounts[type] - currentCounts.b[type]));
+        blackCapturedStr += unicodeIcons.w[type].repeat(Math.max(0, initialCounts[type] - currentCounts.w[type]));
+      });
+
+      const matDiff = Math.round(whiteMat - blackMat);
+      const topIsWhite = boardFlipped;
+      document.getElementById('top-captures').textContent = topIsWhite ? whiteCapturedStr : blackCapturedStr;
+      document.getElementById('bottom-captures').textContent = topIsWhite ? blackCapturedStr : whiteCapturedStr;
+
+      const topAdvEl = document.getElementById('top-advantage');
+      const botAdvEl = document.getElementById('bottom-advantage');
+      topAdvEl.textContent = '';
+      botAdvEl.textContent = '';
+      if (matDiff > 0) (topIsWhite ? topAdvEl : botAdvEl).textContent = `+${matDiff}`;
+      else if (matDiff < 0) (!topIsWhite ? topAdvEl : botAdvEl).textContent = `+${Math.abs(matDiff)}`;
+    }
+
+    function updateGamePhaseBadge() {
+      const badge = document.getElementById('game-phase-badge');
+      if (viewedPly < 14) badge.textContent = 'Opening Phase';
+      else if (viewedPly < 44) badge.textContent = 'Middlegame';
+      else badge.textContent = 'Endgame';
+    }
+
+    function playMoveAudio(moveObj) {
+      if (game.in_checkmate() || game.in_draw()) sfx.gameOver();
+      else if (moveObj && moveObj.san && moveObj.san.includes('+')) sfx.check();
+      else if (moveObj && moveObj.flags && (moveObj.flags.includes('k') || moveObj.flags.includes('q'))) sfx.castle();
+      else if (moveObj && moveObj.captured) sfx.capture();
+      else sfx.move();
+    }
+
+    function checkGameOver() {
+      if (!game.game_over()) return false;
+
+      // Compute player move quality summary
+      const playerMoves = fullMoveHistory.filter(r => r.color === playerColor);
+      let bestOrGood = 0, inaccOrMistake = 0, blunders = 0;
+      playerMoves.forEach(m => {
+        if (m.grade === 'brilliant' || m.grade === 'best' || m.grade === 'good') bestOrGood++;
+        else if (m.grade === 'inaccuracy' || m.grade === 'mistake') inaccOrMistake++;
+        else if (m.grade === 'blunder') blunders++;
+      });
+
+      const accuracy = playerMoves.length > 0
+        ? Math.max(25, Math.min(99.5, ((bestOrGood * 100 + inaccOrMistake * 55 + blunders * 10) / playerMoves.length))).toFixed(1)
+        : '100.0';
+
+      document.getElementById('summary-accuracy-pct').textContent = `${accuracy}%`;
+      document.getElementById('summary-best-count').textContent = bestOrGood;
+      document.getElementById('summary-mistake-count').textContent = inaccOrMistake;
+      document.getElementById('summary-blunder-count').textContent = blunders;
+
+      const modal = document.getElementById('gameover-modal');
+      const icon = document.getElementById('gameover-icon');
+      const title = document.getElementById('gameover-title');
+      const subtitle = document.getElementById('gameover-subtitle');
+
+      if (game.in_checkmate()) {
+        const winnerColor = game.turn() === 'w' ? 'b' : 'w';
+        const playerWon = winnerColor === playerColor;
+        icon.textContent = playerWon ? '🏆' : '🤖';
+        title.textContent = playerWon ? 'Victory!' : 'Checkmate!';
+        subtitle.textContent = playerWon ? `You defeated ${getBotConfig().name} by checkmate!` : `${getBotConfig().name} wins by checkmate.`;
+      } else if (game.in_stalemate()) {
+        icon.textContent = '🤝';
+        title.textContent = 'Draw by Stalemate';
+        subtitle.textContent = 'No legal moves remain and the King is not in check.';
+      } else {
+        icon.textContent = '⚖️';
+        title.textContent = 'Game Drawn';
+        subtitle.textContent = 'Draw by repetition, insufficient material, or 50-move rule.';
+      }
+
+      modal.classList.remove('hidden');
+      return true;
+    }
+
+    function closeGameOverModal() {
+      document.getElementById('gameover-modal').classList.add('hidden');
+    }
+
+    /**
+     * ============================================================================
+     * 10. OPENINGS EXPLORER & INTERACTIVE DRILL CONTROLLER
+     * ============================================================================
+     */
+    let selectedOpening = OPENINGS_DATABASE[0];
+    let openingCategoryFilter = 'ALL';
+    let openingStepIndex = 0;
+    let openingBoardFlipped = false;
+    let openingDrillActive = false;
+    let openingSelectedSq = null;
+    let openingLegalTargets = [];
+
+    function setOpeningCategory(cat) {
+      openingCategoryFilter = cat;
+      document.querySelectorAll('.opening-cat-btn').forEach(btn => {
+        if (btn.dataset.cat === cat) {
+          btn.className = 'opening-cat-btn px-2 py-1 rounded text-[11px] font-bold bg-[#81b64c] text-white';
+        } else {
+          btn.className = 'opening-cat-btn px-2 py-1 rounded text-[11px] font-bold bg-[#302e2b] text-neutral-300 hover:text-white';
+        }
+      });
+      filterOpeningsList();
+    }
+
+    function filterOpeningsList() {
+      renderOpeningsCatalog();
+    }
+
+    function renderOpeningsCatalog() {
+      const listEl = document.getElementById('openings-catalog-list');
+      const query = (document.getElementById('opening-search-input').value || '').toLowerCase().trim();
+
+      const filtered = OPENINGS_DATABASE.filter(op => {
+        const matchesCat = openingCategoryFilter === 'ALL' || op.category === openingCategoryFilter;
+        const matchesQuery = !query || op.name.toLowerCase().includes(query) || op.eco.toLowerCase().includes(query) || op.concepts.toLowerCase().includes(query);
+        return matchesCat && matchesQuery;
+      });
+
+      listEl.innerHTML = filtered.map(op => {
+        const isSelected = selectedOpening && selectedOpening.id === op.id;
+        return `
+          <button onclick="selectOpeningById('${op.id}')" class="w-full text-left px-3.5 py-2.5 transition flex items-start justify-between gap-2 ${isSelected ? 'bg-[#81b64c]/20 border-l-4 border-[#81b64c]' : 'hover:bg-[#2e2c28]'}">
+            <div>
+              <div class="flex items-center gap-1.5">
+                <span class="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-[#1e1c19] text-[#9ce05a]">${op.eco}</span>
+                <span class="text-xs font-bold text-white">${op.name}</span>
+              </div>
+              <div class="text-[11px] font-mono text-neutral-400 mt-0.5 truncate max-w-[260px]">${formatPgnMoves(op.moves)}</div>
+            </div>
+            <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#35332f] text-neutral-300 shrink-0">${op.side === 'w' ? 'White' : 'Black'}</span>
+          </button>
+        `;
+      }).join('');
+    }
+
+    function formatPgnMoves(moves) {
+      let out = [];
+      for (let i = 0; i < moves.length; i += 2) {
+        const num = Math.floor(i / 2) + 1;
+        out.push(`${num}. ${moves[i]}${moves[i + 1] ? ' ' + moves[i + 1] : ''}`);
+      }
+      return out.join(' ');
+    }
+
+    function selectOpeningById(id) {
+      const found = OPENINGS_DATABASE.find(o => o.id === id);
+      if (!found) return;
+      selectedOpening = found;
+      openingStepIndex = found.moves.length; // Show complete mainline first
+      openingBoardFlipped = (found.side === 'b');
+      openingDrillActive = false;
+      openingSelectedSq = null;
+      openingLegalTargets = [];
+      document.getElementById('op-drill-btn').textContent = '🎯 Practice From Memory';
+
+      // Populate Lesson Cards
+      document.getElementById('op-board-eco').textContent = found.eco;
+      document.getElementById('op-board-title').textContent = found.name;
+      document.getElementById('op-board-moves-pgn').textContent = formatPgnMoves(found.moves);
+      document.getElementById('op-side-badge').textContent = found.side === 'w' ? 'White Opening' : 'Black Defense';
+      document.getElementById('op-core-concepts').textContent = found.concepts;
+      document.getElementById('op-plan-white').textContent = found.planWhite;
+      document.getElementById('op-plan-black').textContent = found.planBlack;
+      document.getElementById('op-trap-note').textContent = found.trap;
+
+      renderOpeningsCatalog();
+      renderOpeningBoard();
+    }
+
+    function stepOpeningMove(delta) {
+      if (openingDrillActive) {
+        openingDrillActive = false;
+        document.getElementById('op-drill-btn').textContent = '🎯 Practice From Memory';
+      }
+      openingStepIndex = Math.max(0, Math.min(selectedOpening.moves.length, openingStepIndex + delta));
+      sfx.move();
+      renderOpeningBoard();
+    }
+
+    function renderOpeningBoard() {
+      const opChess = new Chess();
+      let lastOpMove = null;
+      for (let i = 0; i < openingStepIndex; i++) {
+        lastOpMove = opChess.move(selectedOpening.moves[i]);
+      }
+
+      document.getElementById('op-step-counter').textContent = `Move ${openingStepIndex} / ${selectedOpening.moves.length}`;
+      clearSvgArrows('opening-arrow-overlay');
+
+      if (openingStepIndex === 0) {
+        document.getElementById('op-live-step-note').textContent =
+          openingDrillActive
+            ? `Practice Drill Active! Play the ${selectedOpening.side === 'w' ? 'White' : 'Black'} moves of the ${selectedOpening.name} from memory!`
+            : `Starting position for the ${selectedOpening.name}. Click "Next Move ▶" to step through the concepts.`;
+      } else {
+        const noteIdx = Math.min(openingStepIndex - 1, selectedOpening.stepNotes.length - 1);
+        document.getElementById('op-live-step-note').textContent = selectedOpening.stepNotes[noteIdx] || `Played ${lastOpMove.san}.`;
+        if (lastOpMove) {
+          drawSvgArrow('opening-arrow-overlay', lastOpMove.from, lastOpMove.to, '#81b64c', openingBoardFlipped);
+        }
+      }
+
+      renderGenericBoard(
+        'opening-chessboard',
+        opChess,
+        openingBoardFlipped,
+        lastOpMove,
+        openingSelectedSq,
+        openingLegalTargets,
+        selectedOpening.keySquares,
+        handleOpeningSquareClick
+      );
+    }
+
+    function toggleOpeningPracticeDrill() {
+      openingDrillActive = !openingDrillActive;
+      openingSelectedSq = null;
+      openingLegalTargets = [];
+
+      if (openingDrillActive) {
+        openingStepIndex = 0;
+        document.getElementById('op-drill-btn').textContent = '⏹ Exit Practice';
+        // If user practices a Black opening, auto-play White's 1st move
+        if (selectedOpening.side === 'b' && selectedOpening.moves.length > 0) {
+          openingStepIndex = 1;
+        }
+        renderOpeningBoard();
+        document.getElementById('op-live-step-note').textContent =
+          `Your turn! Play the next book move for ${selectedOpening.side === 'w' ? 'White' : 'Black'} on the board.`;
+      } else {
+        document.getElementById('op-drill-btn').textContent = '🎯 Practice From Memory';
+        openingStepIndex = selectedOpening.moves.length;
+        renderOpeningBoard();
+      }
+    }
+
+    function handleOpeningSquareClick(squareName) {
+      if (!openingDrillActive) return;
+      if (openingStepIndex >= selectedOpening.moves.length) return;
+
+      const opChess = new Chess();
+      for (let i = 0; i < openingStepIndex; i++) opChess.move(selectedOpening.moves[i]);
+      if (opChess.turn() !== selectedOpening.side) return;
+
+      const clickedPiece = opChess.get(squareName);
+      if (openingSelectedSq) {
+        const match = openingLegalTargets.find(m => m.to === squareName);
+        if (match) {
+          const expectedSan = selectedOpening.moves[openingStepIndex];
+          if (match.san === expectedSan) {
+            sfx.move();
+            openingSelectedSq = null;
+            openingLegalTargets = [];
+            openingStepIndex++;
+            // Auto-play opponent's reply move in the book line
+            if (openingStepIndex < selectedOpening.moves.length) {
+              setTimeout(() => {
+                openingStepIndex++;
+                sfx.move();
+                renderOpeningBoard();
+                if (openingStepIndex >= selectedOpening.moves.length) {
+                  document.getElementById('op-live-step-note').textContent =
+                    `🎉 Line Mastered! You completed the ${selectedOpening.name} mainline! Click "Spar vs AI" to test it in a live game.`;
+                }
+              }, 350);
+            }
+            renderOpeningBoard();
+            return;
+          } else {
+            sfx.capture();
+            document.getElementById('op-live-step-note').textContent =
+              `Not quite! ${match.san} leaves the book line. Look for the move that develops or strikes the center according to the ${selectedOpening.name} plan.`;
+            openingSelectedSq = null;
+            openingLegalTargets = [];
+            renderOpeningBoard();
+            return;
+          }
+        }
+      }
+
+      if (clickedPiece && clickedPiece.color === selectedOpening.side) {
+        openingSelectedSq = squareName;
+        openingLegalTargets = opChess.moves({ square: squareName, verbose: true });
+      } else {
+        openingSelectedSq = null;
+        openingLegalTargets = [];
+      }
+      renderOpeningBoard();
+    }
+
+    function sparOpeningVsBot() {
+      const op = selectedOpening;
+      document.getElementById('player-side-select').value = op.side;
+      switchMainTab('play');
+      startNewGame(op.moves);
+    }
+
+    /**
+     * ============================================================================
+     * 11. TACTICS & PUZZLES TRAINER CONTROLLER
+     * ============================================================================
+     */
+    let currentPuzzleIndex = 0;
+    let puzzleChess = new Chess();
+    let puzzleBoardFlipped = false;
+    let puzzleSelectedSq = null;
+    let puzzleLegalTargets = [];
+    let puzzleSolved = false;
+
+    function loadPuzzle(idx) {
+      currentPuzzleIndex = (idx + TACTICAL_PUZZLES.length) % TACTICAL_PUZZLES.length;
+      const puz = TACTICAL_PUZZLES[currentPuzzleIndex];
+      puzzleChess = new Chess(puz.fen);
+      puzzleBoardFlipped = (puzzleChess.turn() === 'b');
+      puzzleSelectedSq = null;
+      puzzleLegalTargets = [];
+      puzzleSolved = false;
+
+      document.getElementById('puzzle-theme-badge').textContent = puz.theme;
+      document.getElementById('puzzle-title').textContent = puz.title;
+      document.getElementById('puzzle-turn-label').textContent = puzzleChess.turn() === 'w' ? 'White to Win' : 'Black to Win';
+      document.getElementById('puzzle-progress-pill').textContent = `${currentPuzzleIndex + 1} / ${TACTICAL_PUZZLES.length}`;
+
+      const statusBadge = document.getElementById('puzzle-status-badge');
+      statusBadge.className = 'inline-block px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-[#81b64c]/20 text-[#9ce05a] mb-2';
+      statusBadge.textContent = 'YOUR TURN';
+      document.getElementById('puzzle-coach-text').textContent =
+        `Find the best tactical move (${puz.theme})! Click a piece on the board to execute the winning shot.`;
+
+      clearSvgArrows('puzzle-arrow-overlay');
+      renderPuzzleBoard();
+    }
+
+    function renderPuzzleBoard(lastPuzMove = null) {
+      renderGenericBoard(
+        'puzzle-chessboard',
+        puzzleChess,
+        puzzleBoardFlipped,
+        lastPuzMove,
+        puzzleSelectedSq,
+        puzzleLegalTargets,
+        [],
+        handlePuzzleSquareClick
+      );
+    }
+
+    function handlePuzzleSquareClick(squareName) {
+      if (puzzleSolved) return;
+      const puz = TACTICAL_PUZZLES[currentPuzzleIndex];
+      const turnColor = puzzleChess.turn();
+      const clickedPiece = puzzleChess.get(squareName);
+
+      if (puzzleSelectedSq) {
+        const match = puzzleLegalTargets.find(m => m.to === squareName);
+        if (match) {
+          const moveAttempt = puzzleChess.move({ from: puzzleSelectedSq, to: squareName, promotion: 'q' });
+          puzzleSelectedSq = null;
+          puzzleLegalTargets = [];
+
+          if (moveAttempt && moveAttempt.san === puz.solution[0]) {
+            puzzleSolved = true;
+            sfx.gameOver();
+            const statusBadge = document.getElementById('puzzle-status-badge');
+            statusBadge.className = 'inline-block px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-cyan-500/20 text-cyan-300 mb-2';
+            statusBadge.textContent = '★ PUZZLE SOLVED!';
+            document.getElementById('puzzle-coach-text').textContent = puz.explanation;
+            clearSvgArrows('puzzle-arrow-overlay');
+            drawSvgArrow('puzzle-arrow-overlay', moveAttempt.from, moveAttempt.to, '#81b64c', puzzleBoardFlipped);
+            renderPuzzleBoard(moveAttempt);
+            return;
+          } else {
+            sfx.capture();
+            puzzleChess.undo();
+            const statusBadge = document.getElementById('puzzle-status-badge');
+            statusBadge.className = 'inline-block px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-rose-500/20 text-rose-300 mb-2';
+            statusBadge.textContent = '✗ TRY AGAIN';
+            document.getElementById('puzzle-coach-text').textContent =
+              `${moveAttempt.san} misses the immediate tactical blow! Look for forcing checks, pins, or double attacks.`;
+            renderPuzzleBoard();
+            return;
+          }
+        }
+      }
+
+      if (clickedPiece && clickedPiece.color === turnColor) {
+        puzzleSelectedSq = squareName;
+        puzzleLegalTargets = puzzleChess.moves({ square: squareName, verbose: true });
+      } else {
+        puzzleSelectedSq = null;
+        puzzleLegalTargets = [];
+      }
+      renderPuzzleBoard();
+    }
+
+    function showPuzzleHint() {
+      const puz = TACTICAL_PUZZLES[currentPuzzleIndex];
+      clearSvgArrows('puzzle-arrow-overlay');
+      drawSvgArrow('puzzle-arrow-overlay', puz.hintFrom, puz.hintTo, '#f59e0b', puzzleBoardFlipped);
+      document.getElementById('puzzle-coach-text').textContent =
+        `Hint (${puz.theme}): Look closely at the highlighted arrow from ${puz.hintFrom} to ${puz.hintTo}. ${puz.explanation}`;
+      sfx.move();
+    }
+
+    function nextPuzzle() {
+      loadPuzzle(currentPuzzleIndex + 1);
+    }
+
+    // Initialize App on Load
+    window.onload = function () {
+      selectOpeningById('italian-game');
+      startNewGame();
+    };
+  </script>
+</body>
+</html>
